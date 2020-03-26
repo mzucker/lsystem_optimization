@@ -6,9 +6,12 @@ all: lsystems
 	$(CC) $(CFLAGS) -o $@ $^
 
 %_debug: %.c 
-	$(CC) $(CFLAGS) -o $@ $^
+	$(CC) -g $(CFLAGS) -o $@ $^
 
 .PHONY: clean
+.PHONY: debug
+
+debug: lsystems_debug
 
 clean:
 	rm -f lsystems lsystems_debug
