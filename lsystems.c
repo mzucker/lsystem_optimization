@@ -158,15 +158,13 @@ vec2d_t translate(const vec2d_t p, const vec2d_t q) {
 
 xform_t xform_inverse(xform_t xform) {
 
-    xform_t rval = {
-        .pos = { -xform.pos.x, -xform.pos.y },
-        .rot = {  xform.rot.c, -xform.rot.s },
+    rot2d_t rinv = { xform.rot.c, -xform.rot.s };
+
+    return (xform_t) {
+        .pos = rotate(rinv, (vec2d_t){ -xform.pos.x, -xform.pos.y }),
+        .rot = rinv,
         .turn = -xform.turn
     };
-
-    rval.pos = rotate(rval.rot, rval.pos);
-
-    return rval;
 
 }
 
