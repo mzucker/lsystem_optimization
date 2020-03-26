@@ -5,6 +5,10 @@
 #include <math.h>
 #include <time.h>
 
+#ifdef _OPENMP
+#include <omp.h>
+#endif
+
 typedef struct buffer {
 
     size_t elem_size;
@@ -86,6 +90,8 @@ typedef struct lsystem_memo {
 typedef struct lsystem_memo_set {
 
     size_t memo_depth;
+    size_t min_parallel_segments;
+    
     lsystem_memo_t* memos[MAX_RULES];
 
 } lsystem_memo_set_t;
@@ -115,6 +121,7 @@ typedef struct options {
     lsystem_t* lsys;
     size_t     max_depth;
     size_t     memo_depth;
+    size_t     min_parallel_segments;
     method_t   method;
     size_t     max_segments;
 } options_t;
@@ -543,16 +550,18 @@ void lsystem_segments_r(const lsystem_t* lsys,
                     size_t init_count = segments->count;
                     buffer_resize(segments, init_count + memo->segment_count);
 
-                    const lsystem_segment_t* start =
+                    const lsystem_segment_t* seg =
                         buffer_read(segments, memo->segment_start);
-
-                    const lsystem_segment_t* end = start + memo->segment_count;
 
                     lsystem_segment_t* dst =
                         (lsystem_segment_t*)(segments->data +
                                              init_count * segments->elem_size);
 
-                    for (const lsystem_segment_t* seg=start; seg != end; ++seg) {
+                    int do_parallelize =
+                        (memo->segment_count >= mset->min_parallel_segments);
+                    
+                    #pragma omp parallel for if (do_parallelize)
+                    for (size_t i=0; i<memo->segment_count; ++i) {
 
                         lsystem_segment_t newseg = {
                             xform_transform_point(update_xform, seg->p0),
@@ -560,6 +569,7 @@ void lsystem_segments_r(const lsystem_t* lsys,
                         };
 
                         *dst++ = newseg;
+                        seg++;
 
                     }
 
@@ -611,7 +621,8 @@ void lsystem_segments_r(const lsystem_t* lsys,
 
 buffer_t* lsystem_segments_recursive(const lsystem_t* lsys,
                                      size_t max_depth,
-                                     size_t memo_depth) {
+                                     size_t memo_depth,
+                                     size_t min_parallel_segments) {
 
     buffer_t* segments = malloc(sizeof(buffer_t));
     
@@ -626,6 +637,7 @@ buffer_t* lsystem_segments_recursive(const lsystem_t* lsys,
     memset(&mset, 0, sizeof(mset));
 
     mset.memo_depth = memo_depth;
+    mset.min_parallel_segments = min_parallel_segments;
 
     lsystem_segments_r(lsys, lsys->start, 
                        max_depth, segments,
@@ -692,6 +704,7 @@ void parse_options(int argc, char** argv, options_t* opts) {
 
     memset(opts, 0, sizeof(options_t));
     opts->max_segments = 100000;
+    opts->min_parallel_segments = -1;
 
     int i=1;
     int required_count = 0;
@@ -777,6 +790,25 @@ void parse_options(int argc, char** argv, options_t* opts) {
                 ok = 0;
                 break;
             }
+
+#ifdef _OPENMP            
+        } else if (!strcmp(arg, "-t")) {
+            
+            if (++i == argc) { ok = 0; break; }
+            
+            int d;
+            
+            if (sscanf(argv[i], "%d", &d) != 1) {
+                ok = 0; break;
+            }
+            
+            if (d >= -1) {
+                opts->min_parallel_segments = (size_t)d;
+            } else {
+                ok = 0;
+                break;
+            }
+#endif            
             
         } else if (!strcmp(arg, "-P")) {
             
@@ -795,7 +827,20 @@ void parse_options(int argc, char** argv, options_t* opts) {
 
     if (opts->memo_depth && opts->method == METHOD_STRING) {
         printf("warning: ignoring memo depth for string method!\n");
+        opts->memo_depth = 0;
     }
+
+#ifdef _OPENMP    
+    if (opts->min_parallel_segments != (size_t)-1 && !opts->memo_depth) {
+        printf("warning: ignoring min parallel segments without memoization\n");
+        opts->min_parallel_segments = -1;
+    }
+    if (opts->min_parallel_segments != (size_t)-1) {
+        printf("will parallelize >= %d segments with %d processors\n",
+               (int)opts->min_parallel_segments,
+               (int)omp_get_num_procs());
+    }
+#endif    
     
     if (!ok || !opts->lsys || !opts->max_depth) {
         printf("usage: %s [options] LSYSTEM MAXDEPTH\n"
@@ -809,6 +854,7 @@ void parse_options(int argc, char** argv, options_t* opts) {
         printf("  -s             use string building method\n"
                "  -r             use recursive method\n"
                "  -m MEMODEPTH   enable memoization for recursive method\n"
+               "  -t SEGMENTS    parallelize memoization for more than SEGMENTS segments\n"
                "  -x MAXSEGMENTS maximum number of segments for output\n"
                "  -P             don't precompute rotations\n"
                "\n");
@@ -857,7 +903,8 @@ int main(int argc, char** argv) {
     } else {
 
         segments = lsystem_segments_recursive(opts.lsys, opts.max_depth,
-                                              opts.memo_depth);
+                                              opts.memo_depth,
+                                              opts.min_parallel_segments);
 
     }
 

@@ -1,4 +1,6 @@
-CFLAGS = -Wall -O3 -lm -std=c99
+CC = gcc-mp-8
+
+CFLAGS = -Wall -O3 -lm -std=c99 -fopenmp
 
 all: lsystems 
 
