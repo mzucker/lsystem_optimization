@@ -9,10 +9,6 @@
 #
 # Based on documentation in https://en.wikipedia.org/wiki/L-system and
 # http://paulbourke.net/fractals/lsys/
-#
-# This version uses iteration and explicit string representation to
-# build L-Systems. See lsystems_v2.py for an example using recursion
-# and implicit representations.
 
 import sys
 import argparse
@@ -24,8 +20,16 @@ from plot_segments import plot_segments
 
 LSystem = namedtuple('LSystem', 'start, rules, turn_angle_deg, draw_chars')
 
-# dictionary mapping names to a few L-Systems we found on Wikipedia
+# A few L-Systems found on pages linked above
+
 KNOWN_LSYSTEMS = {
+
+    'sierpinski_triangle': LSystem(
+        start = 'F-G-G',
+        rules = dict(F='F-G+F+G-F', G='GG'),
+        turn_angle_deg = 120,
+        draw_chars = None
+    ),
     
     'sierpinski_arrowhead': LSystem(
         start = 'A',
@@ -46,12 +50,34 @@ KNOWN_LSYSTEMS = {
         rules = dict(X='F+[[X]-X]-F[-FX]+X', F='FF'),
         turn_angle_deg = 25,
         draw_chars = None
+    ),
+
+    'sticks': LSystem(
+        start = 'X',
+        rules = dict(X='F[+X]F[-X]+X', F='FF'),
+        turn_angle_deg = 20,
+        draw_chars = 'F'
+    ),
+
+    'hilbert': LSystem(
+        start = 'L',
+        rules = dict(L='+RF-LFL-FR+', R='-LF+RFR+FL-'),
+        turn_angle_deg = 90,
+        draw_chars = 'F'
+    ),
+
+    'pentaplexity': LSystem(
+        start = 'F++F++F++F++F',
+        rules = dict(F='F++F++F+++++F-F++F'),
+        turn_angle_deg = 36,
+        draw_chars = None
     )
-    
 }
 
-# s: string
-# rules: dictionary maps variables -> replacements
+######################################################################
+# make a big ol' string from an L-System starting from its start state
+# using repeated string replacement.
+
 def lsystem_build_string(lsys, max_depth):
 
     lstring = lsys.start
@@ -71,6 +97,13 @@ def lsystem_build_string(lsys, max_depth):
         lstring = output
 
     return lstring
+
+######################################################################
+# "draw" a single symbol from an L-System string
+#
+# stack is read-write
+# segments is for appending
+# cur_state is read and returned
 
 def lsystem_execute_symbol(lsys, symbol, cur_state, stack, segments):
 
@@ -109,10 +142,12 @@ def lsystem_execute_symbol(lsys, symbol, cur_state, stack, segments):
     return cur_pos, cur_angle_deg
     
 
-# take a string and turn it into a set of line segments
-# turn_angle is provided in degrees
-# segments returned as an n-by-2-by-2 array where each segment is represented as
-# [(x0, y0), (x1, y1)]
+######################################################################
+# take a string and turn it into a set of line segments, returned as
+# an n-by-2-by-2 array where each segment is represented as
+#
+#  [(x0, y0), (x1, y1)]
+
 def lsystem_segments_from_string(lsys, lstring):
 
     cur_pos = np.array([0., 0.])
@@ -126,17 +161,20 @@ def lsystem_segments_from_string(lsys, lstring):
     segments = []
 
     for symbol in lstring:
-        cur_state = lsystem_execute_symbol(lsys, symbol, cur_state, stack, segments)
+        cur_state = lsystem_execute_symbol(lsys, symbol, cur_state,
+                                           stack, segments)
         
     return np.array(segments)
 
 ######################################################################
+# build up segment list recursively - don't call this function
+# directly, use lsystem_segments_recursive instead
 
-def lsystem_segments_recursive_helper(lsys, s,
-                                      remaining_steps,
-                                      cur_state,
-                                      state_stack,
-                                      segments):
+def lsystem_segments_r(lsys, s,
+                       remaining_steps,
+                       cur_state,
+                       state_stack,
+                       segments):
 
     # for each symbol in input
     for symbol in s:
@@ -148,10 +186,10 @@ def lsystem_segments_recursive_helper(lsys, s,
             replacement = lsys.rules[symbol]
             
             # recursively call this function with fewer remaining steps
-            cur_state = lsystem_segments_recursive_helper(lsys, replacement, 
-                                                          remaining_steps-1,
-                                                          cur_state,
-                                                          state_stack, segments)
+            cur_state = lsystem_segments_r(lsys, replacement, 
+                                           remaining_steps-1,
+                                           cur_state,
+                                           state_stack, segments)
 
         else: # execute symbol directly
 
@@ -160,7 +198,9 @@ def lsystem_segments_recursive_helper(lsys, s,
 
     return cur_state
 
-# just calls the helper function above
+######################################################################
+# build up segment list recursively by calling helper function above
+
 def lsystem_segments_recursive(lsys, max_depth):
 
     cur_pos = np.array([0., 0.])
@@ -173,20 +213,21 @@ def lsystem_segments_recursive(lsys, max_depth):
 
     s = lsys.start
 
-    lsystem_segments_recursive_helper(lsys, s,
-                                      max_depth,
-                                      cur_state,
-                                      state_stack,
-                                      segments)
+    lsystem_segments_r(lsys, s,
+                       max_depth,
+                       cur_state,
+                       state_stack,
+                       segments)
 
     return np.array(segments)
 
-
 ######################################################################
+# parse command-line options for this program
 
 def parse_options():
 
-    parser = argparse.ArgumentParser(description='simple Python L-system renderer')
+    parser = argparse.ArgumentParser(
+        description='simple Python L-system renderer')
 
     parser.add_argument('-x', dest='max_segments', metavar='MAXSEGMENTS',
                         type=int, default=100000,
@@ -213,8 +254,10 @@ def parse_options():
                         
     opts = parser.parse_args()
 
-    opts.lsys = KNOWN_LSYSTEMS[opts.lname[0]]
+    opts.lname = opts.lname[0]
     opts.max_depth = opts.max_depth[0]
+
+    opts.lsys = KNOWN_LSYSTEMS[opts.lname]
 
     if opts.use_recursion:
         print('using recursive method')
