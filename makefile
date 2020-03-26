@@ -11,7 +11,6 @@ all: lsystems
 	$(CC) -g $(CFLAGS) -o $@ $^
 
 .PHONY: clean
-.PHONY: debug
 
 debug: lsystems_debug
 
