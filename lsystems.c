@@ -102,7 +102,7 @@ enum {
     NUM_KNOWN_LSYSTEMS
 };
 
-lsystem_t known_lsystems[NUM_KNOWN_LSYSTEMS];
+lsystem_t KNOWN_LSYSTEMS[NUM_KNOWN_LSYSTEMS];
 
 //////////////////////////////////////////////////////////////////////
 
@@ -316,6 +316,65 @@ void lsystem_create(lsystem_t* lsys,
     }
 
 }
+
+void initialize_known_lsystems() {
+
+    lsystem_create(KNOWN_LSYSTEMS + LSYS_SIERPINSKI_TRIANGLE,
+                   "sierpinski_triangle", "F-G-G",
+                   (lsystem_rule_t[]){
+                     { 'F', "F-G+F+G-F" },
+                     { 'G', "GG" }, 
+                     { 0, 0 }
+                   }, 120, NULL);
+
+    lsystem_create(KNOWN_LSYSTEMS + LSYS_SIERPINSKI_ARROWHEAD,
+                   "sierpinski_arrowhead", "A",
+                   (lsystem_rule_t[]){
+                     { 'A', "B-A-B" }, 
+                     { 'B', "A+B+A" }, 
+                     { 0, 0 }
+                   }, 60, NULL);
+    
+    lsystem_create(KNOWN_LSYSTEMS + LSYS_DRAGON_CURVE,
+                   "dragon_curve", "FX",
+                   (lsystem_rule_t[]){
+                     { 'X', "X+YF+" },
+                     { 'Y', "-FX-Y" },
+                   }, 90, NULL);
+    
+    lsystem_create(KNOWN_LSYSTEMS + LSYS_BARNSLEY_FERN,
+                   "barnsley_fern", "X",
+                   (lsystem_rule_t[]){
+                     { 'X', "F+[[X]-X]-F[-FX]+X" },
+                     { 'F', "FF" },
+                     { 0, 0 }
+                   }, 25, NULL);
+
+    lsystem_create(KNOWN_LSYSTEMS + LSYS_STICKS,
+                   "sticks", "X",
+                   (lsystem_rule_t[]){
+                     { 'X', "F[+X]F[-X]+X" },
+                     { 'F', "FF" },
+                     { 0, 0 }
+                   }, 20, "F");
+
+    lsystem_create(KNOWN_LSYSTEMS + LSYS_HILBERT,
+                   "hilbert", "L",
+                   (lsystem_rule_t[]){
+                     { 'L', "+RF-LFL-FR+" },
+                     { 'R', "-LF+RFR+FL-" },
+                     { 0, 0 }
+                   }, 90, "F");
+
+    lsystem_create(KNOWN_LSYSTEMS + LSYS_PENTAPLEXITY,
+                   "pentaplexity", "F++F++F++F++F",
+                   (lsystem_rule_t[]){
+                     { 'F', "F++F++F+++++F-F++F" },
+                     { 0, 0 }
+                   }, 36, NULL);
+                   
+}
+
 
 
 void lsystem_print(const lsystem_t* lsys) {
@@ -617,63 +676,6 @@ buffer_t* lsystem_segments_from_string(const lsystem_t* lsys,
 
 }
 
-void initialize_known_lsystems() {
-
-    lsystem_create(known_lsystems + LSYS_SIERPINSKI_TRIANGLE,
-                   "sierpinski_triangle", "F-G-G",
-                   (lsystem_rule_t[]){
-                     { 'F', "F-G+F+G-F" },
-                     { 'G', "GG" }, 
-                     { 0, 0 }
-                   }, 120, NULL);
-
-    lsystem_create(known_lsystems + LSYS_SIERPINSKI_ARROWHEAD,
-                   "sierpinski_arrowhead", "A",
-                   (lsystem_rule_t[]){
-                     { 'A', "B-A-B" }, 
-                     { 'B', "A+B+A" }, 
-                     { 0, 0 }
-                   }, 60, NULL);
-    
-    lsystem_create(known_lsystems + LSYS_DRAGON_CURVE,
-                   "dragon_curve", "FX",
-                   (lsystem_rule_t[]){
-                     { 'X', "X+YF+" },
-                     { 'Y', "-FX-Y" },
-                   }, 90, NULL);
-    
-    lsystem_create(known_lsystems + LSYS_BARNSLEY_FERN,
-                   "barnsley_fern", "X",
-                   (lsystem_rule_t[]){
-                     { 'X', "F+[[X]-X]-F[-FX]+X" },
-                     { 'F', "FF" },
-                     { 0, 0 }
-                   }, 25, NULL);
-
-    lsystem_create(known_lsystems + LSYS_STICKS,
-                   "sticks", "X",
-                   (lsystem_rule_t[]){
-                     { 'X', "F[+X]F[-X]+X" },
-                     { 'F', "FF" },
-                     { 0, 0 }
-                   }, 20, "F");
-
-    lsystem_create(known_lsystems + LSYS_HILBERT,
-                   "hilbert", "L",
-                   (lsystem_rule_t[]){
-                     { 'L', "+RF-LFL-FR+" },
-                     { 'R', "-LF+RFR+FL-" },
-                     { 0, 0 }
-                   }, 90, "F");
-
-    lsystem_create(known_lsystems + LSYS_PENTAPLEXITY,
-                   "pentaplexity", "F++F++F++F++F",
-                   (lsystem_rule_t[]){
-                     { 'F', "F++F++F+++++F-F++F" },
-                     { 0, 0 }
-                   }, 36, NULL);
-                   
-}
 
 //////////////////////////////////////////////////////////////////////
 
@@ -712,9 +714,9 @@ void parse_options(int argc, char** argv, options_t* opts) {
                 ok = 0;
 
                 for (int j=0; j<NUM_KNOWN_LSYSTEMS; ++j) {
-                    if (!strcmp(arg, known_lsystems[j].name)) {
+                    if (!strcmp(arg, KNOWN_LSYSTEMS[j].name)) {
                         ok = 1;
-                        opts->lsys = known_lsystems + j;
+                        opts->lsys = KNOWN_LSYSTEMS + j;
                         break;
                     }
                 }
@@ -807,7 +809,7 @@ void parse_options(int argc, char** argv, options_t* opts) {
                "\n"
                "where LSYSTEM is one of:\n", argv[0]);
         for (int j=0; j<NUM_KNOWN_LSYSTEMS; ++j) {
-            printf("  * %s\n", known_lsystems[j].name);
+            printf("  * %s\n", KNOWN_LSYSTEMS[j].name);
         }
         printf("\n");
         printf("options:\n");
