@@ -134,29 +134,26 @@ int positive_mod(int ticks, int divisor) {
 
 vec2d_t rotate(const rot2d_t R, const vec2d_t p) {
 
-    vec2d_t result = {
+    return (vec2d_t){
         R.c * p.x - R.s * p.y,
         R.s * p.x + R.c * p.y
     };
-
-    return result;
 
 }
 
 rot2d_t rotateR(const rot2d_t R2, const rot2d_t R1) {
 
-    rot2d_t result = {
+    return (rot2d_t) {
         R2.c * R1.c - R2.s * R1.s,
         R2.s * R1.c + R2.c * R1.s,
     };
 
-    return result;
-
 }
 
 vec2d_t translate(const vec2d_t p, const vec2d_t q) {
-    vec2d_t result = { p.x + q.x, p.y + q.y };
-    return result;
+    
+    return (vec2d_t) { p.x + q.x, p.y + q.y };
+
 }
 
 xform_t xform_inverse(xform_t xform) {
@@ -176,7 +173,7 @@ xform_t xform_inverse(xform_t xform) {
 xform_t xform_compose(xform_t xform2,
                       xform_t xform1) {
 
-    xform_t rval = {
+    return (xform_t) {
 
         .pos = translate(xform2.pos,
                          rotate(xform2.rot, xform1.pos)),
@@ -187,8 +184,6 @@ xform_t xform_compose(xform_t xform2,
 
     };
     
-    return rval;
-
 }
 
 vec2d_t xform_transform_point(xform_t xform,
