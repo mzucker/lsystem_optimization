@@ -78,8 +78,8 @@ typedef struct lsystem_memo {
     size_t segment_start;
     size_t segment_count;
     
-    xform_t init_from_world;
-    xform_t init_from_final;
+    xform_t init_inverse;
+    xform_t delta_xform;
     
 } lsystem_memo_t;
 
@@ -462,13 +462,13 @@ void lsystem_execute_symbol(const lsystem_t* lsys,
 
 }
 
-void lsystem_segments_recursive_helper(const lsystem_t* lsys,
-                                       const char* lstring, 
-                                       size_t max_depth,
-                                       buffer_t* segments,
-                                       xform_t* world_from_cur,
-                                       buffer_t* xform_stack,
-                                       lsystem_memo_set_t* mset) {
+void lsystem_segments_r(const lsystem_t* lsys,
+                        const char* lstring, 
+                        size_t max_depth,
+                        buffer_t* segments,
+                        xform_t* cur_state,
+                        buffer_t* xform_stack,
+                        lsystem_memo_set_t* mset) {
 
     for (const char* psymbol=lstring; *psymbol; ++psymbol) {
 
@@ -484,9 +484,9 @@ void lsystem_segments_recursive_helper(const lsystem_t* lsys,
 
                 if (memo) {
 
-                    // world_from_cur * init_from_world
-                    xform_t world_from_old_world =
-                        xform_compose(*world_from_cur, memo->init_from_world);
+                    // cur_state * init_inverse
+                    xform_t update_xform =
+                        xform_compose(*cur_state, memo->init_inverse);
 
                     size_t init_count = segments->count;
                     buffer_resize(segments, init_count + memo->segment_count);
@@ -503,16 +503,16 @@ void lsystem_segments_recursive_helper(const lsystem_t* lsys,
                     for (const lsystem_segment_t* seg=start; seg != end; ++seg) {
 
                         lsystem_segment_t newseg = {
-                            xform_transform_point(world_from_old_world, seg->p0),
-                            xform_transform_point(world_from_old_world, seg->p1)
+                            xform_transform_point(update_xform, seg->p0),
+                            xform_transform_point(update_xform, seg->p1)
                         };
 
                         *dst++ = newseg;
 
                     }
 
-                    *world_from_cur = xform_compose(*world_from_cur,
-                                                    memo->init_from_final);
+                    *cur_state = xform_compose(*cur_state,
+                                               memo->delta_xform);
 
                     continue;
 
@@ -522,7 +522,7 @@ void lsystem_segments_recursive_helper(const lsystem_t* lsys,
                     
                     active_memo->segment_start = segments->count;
                     active_memo->segment_count = segments->count;
-                    active_memo->init_from_world = xform_inverse(*world_from_cur);
+                    active_memo->init_inverse = xform_inverse(*cur_state);
                     
                     mset->memos[(int)*psymbol] = active_memo;
 
@@ -530,26 +530,26 @@ void lsystem_segments_recursive_helper(const lsystem_t* lsys,
 
             }
 
-            lsystem_segments_recursive_helper(lsys, rule->replacement,
-                                              max_depth-1,
-                                              segments, world_from_cur, xform_stack,
-                                              mset);
+            lsystem_segments_r(lsys, rule->replacement,
+                               max_depth-1,
+                               segments, cur_state, xform_stack,
+                               mset);
 
             if (active_memo) {
                 
                 active_memo->segment_count =
                     segments->count - active_memo->segment_start;
                 
-                active_memo->init_from_final =
-                    xform_compose(active_memo->init_from_world,
-                                  *world_from_cur);
+                active_memo->delta_xform =
+                    xform_compose(active_memo->init_inverse,
+                                  *cur_state);
 
             }
 
         } else {
 
             lsystem_execute_symbol(lsys, *psymbol, segments,
-                                   world_from_cur, xform_stack);
+                                   cur_state, xform_stack);
 
         }
         
@@ -568,17 +568,17 @@ buffer_t* lsystem_segments_recursive(const lsystem_t* lsys,
     buffer_t xform_stack;
     buffer_create(&xform_stack, sizeof(xform_t), INIT_STATES_CAPACITY);
 
-    xform_t world_from_cur = IDENTITY_XFORM;
+    xform_t cur_state = IDENTITY_XFORM;
 
     lsystem_memo_set_t mset;
     memset(&mset, 0, sizeof(mset));
 
     mset.memo_depth = memo_depth;
 
-    lsystem_segments_recursive_helper(lsys, lsys->start, 
-                                      max_depth, segments,
-                                      &world_from_cur, &xform_stack,
-                                      memo_depth ? &mset : NULL);
+    lsystem_segments_r(lsys, lsys->start, 
+                       max_depth, segments,
+                       &cur_state, &xform_stack,
+                       memo_depth ? &mset : NULL);
 
     for (int i=0; i<MAX_RULES; ++i) {
         if (mset.memos[i]) {
@@ -602,12 +602,12 @@ buffer_t* lsystem_segments_from_string(const lsystem_t* lsys,
     buffer_t xform_stack;
     buffer_create(&xform_stack, sizeof(xform_t), INIT_STATES_CAPACITY);
 
-    xform_t world_from_cur = IDENTITY_XFORM;
+    xform_t cur_state = IDENTITY_XFORM;
 
     for (const char* psymbol=lstring; *psymbol; ++psymbol) {
 
         lsystem_execute_symbol(lsys, *psymbol, segments,
-                               &world_from_cur, &xform_stack);
+                               &cur_state, &xform_stack);
 
     }
 
