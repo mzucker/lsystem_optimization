@@ -3,3 +3,4 @@ lsystems
 segment_plot.png
 segments.txt
 __pycache__
+*.dSYM
