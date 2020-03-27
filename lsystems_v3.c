@@ -55,11 +55,6 @@ typedef struct point2d {
     float x, y;
 } point2d_t;
 
-// 2D rotation
-typedef struct rot2d {
-    float c, s;
-} rot2d_t;
-
 //////////////////////////////////////////////////////////////////////
 // L-System types/functions
 
@@ -102,11 +97,10 @@ typedef struct lsys_rule_def {
 
 typedef struct lsys_state {
     point2d_t pos;
-    rot2d_t rot;
     float angle;
 } lsys_state_t;
 
-static const lsys_state_t LSYS_START_STATE = { { 0.f, 0.f, }, { 1.f, 0.f }, 0.f };
+static const lsys_state_t LSYS_START_STATE = { { 0.f, 0.f, }, 0.f };
 
 void lsys_create(lsys_t* lsys,
                  const char* name,
@@ -368,8 +362,11 @@ void _lsys_execute_symbol(const lsys_t* lsys,
             return;
         }
 
-        float xnew = state->pos.x + state->rot.c;
-        float ynew = state->pos.y + state->rot.s;
+        float c = cosf(state->angle);
+        float s = sinf(state->angle);
+            
+        float xnew = state->pos.x + c;
+        float ynew = state->pos.y + s;
 
         lsys_segment_t seg = { { state->pos.x, state->pos.y},
                                { xnew, ynew } };
@@ -386,9 +383,6 @@ void _lsys_execute_symbol(const lsys_t* lsys,
         
         state->angle += delta;
 
-        state->rot.c = cosf(state->angle);
-        state->rot.s = sinf(state->angle);
-        
     } else if (symbol == '[') {
 
         darray_push_back(state_stack, state);

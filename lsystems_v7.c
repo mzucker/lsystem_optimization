@@ -1,6 +1,6 @@
 //////////////////////////////////////////////////////////////////////
 //
-// lsystems_v2.c
+// lsystems_v7.c
 // Matt Zucker
 //
 //////////////////////////////////////////////////////////////////////
@@ -14,6 +14,10 @@
 #include <ctype.h>
 #include <math.h>
 #include <time.h>
+
+#ifdef _OPENMP
+#include <omp.h>
+#endif
 
 //////////////////////////////////////////////////////////////////////
 // for benchmarking
@@ -55,6 +59,32 @@ typedef struct point2d {
     float x, y;
 } point2d_t;
 
+// 2D rotation
+typedef struct rot2d {
+    float c, s;
+} rot2d_t;
+
+// 2D transformation
+typedef struct xform {
+    point2d_t pos;
+    rot2d_t   rot;
+    float     angle;
+} xform_t;
+
+// identity transform
+static const xform_t IDENTITY_XFORM = {
+    { 0.f, 0.f, }, { 1.f, 0.f }, 0.f
+};
+
+// 2D geometry functions
+int positive_mod(int ticks, int divisor);
+point2d_t rotate_point(const rot2d_t R, const point2d_t p);
+rot2d_t rotate_compose(const rot2d_t R2, const rot2d_t R1);
+point2d_t translate_point(const point2d_t p, const point2d_t q);
+xform_t xform_inverse(xform_t xform);
+xform_t xform_compose(xform_t xform2, xform_t xform1);
+point2d_t xform_transform_point(xform_t xform, point2d_t p);
+
 //////////////////////////////////////////////////////////////////////
 // L-System types/functions
 
@@ -86,6 +116,8 @@ typedef struct lsystem {
     lsys_sized_string_t rules[LSYS_MAX_RULES];
     unsigned char       draw_chars[LSYS_MAX_RULES];
     double              turn_angle_rad;
+    int                 rotation_cycle_length;
+    rot2d_t             rotations[LSYS_MAX_CYCLE_LENGTH];
     
 } lsys_t;
 
@@ -95,12 +127,29 @@ typedef struct lsys_rule_def {
     const char* replacement;
 } lsys_rule_def_t;
 
-typedef struct lsys_state {
-    point2d_t pos;
-    float angle;
-} lsys_state_t;
+// datatype for memoizing a single L-System rule
+typedef struct lsys_memo {
 
-static const lsys_state_t LSYS_START_STATE = { { 0.f, 0.f, }, 0.f };
+    size_t memo_depth;
+    
+    size_t segment_start;
+    size_t segment_count;
+    
+    xform_t init_inverse;
+    xform_t delta_xform;
+    
+} lsys_memo_t;
+
+// datatype for memoizing an entire L-system
+typedef struct lsys_memo_set {
+
+    size_t max_depth;
+    size_t min_memo_segments;
+    size_t min_parallel_segments;
+    
+    lsys_memo_t* memos[LSYS_MAX_RULES];
+
+} lsys_memo_set_t;
 
 void lsys_create(lsys_t* lsys,
                  const char* name,
@@ -117,7 +166,9 @@ darray_t* lsys_segments_from_string(const lsys_t* lsys,
                                     const char* lstring);
 
 darray_t* lsys_segments_recursive(const lsys_t* lsys,
-                                  size_t max_depth);
+                                  size_t max_depth,
+                                  size_t min_memo_segments,
+                                  size_t min_parallel_segments);
 
 //////////////////////////////////////////////////////////////////////
 // set up some known L-Systems
@@ -150,6 +201,8 @@ typedef struct options {
     size_t        max_depth;
     size_t        max_segments;
     lsys_method_t method;
+    size_t        min_memo_segments;
+    size_t        min_parallel_segments;
 } options_t;
 
 void parse_options(int argc, char** argv, options_t* opts);
@@ -163,6 +216,78 @@ double get_time_as_double() {
     clock_gettime(CLOCK_REALTIME, &tp);
 
     return (double)tp.tv_sec + (double)tp.tv_nsec * 1e-9;
+
+}
+
+//////////////////////////////////////////////////////////////////////
+
+int positive_mod(int ticks, int divisor) {
+
+    int rval = ticks % divisor;
+    if (ticks < 0) {
+        rval += divisor;
+    }
+
+    return rval;
+
+}
+
+point2d_t rotate_point(const rot2d_t R, const point2d_t p) {
+
+    return (point2d_t){
+        R.c * p.x - R.s * p.y,
+        R.s * p.x + R.c * p.y
+    };
+
+}
+
+rot2d_t rotate_compose(const rot2d_t R2, const rot2d_t R1) {
+
+    return (rot2d_t) {
+        R2.c * R1.c - R2.s * R1.s,
+        R2.s * R1.c + R2.c * R1.s,
+    };
+
+}
+ 
+point2d_t translate_point(const point2d_t p, const point2d_t q) {
+    
+    return (point2d_t) { p.x + q.x, p.y + q.y };
+
+}
+
+xform_t xform_inverse(xform_t xform) {
+
+    rot2d_t rinv = { xform.rot.c, -xform.rot.s };
+
+    return (xform_t) {
+        .pos = rotate_point(rinv, (point2d_t){ -xform.pos.x, -xform.pos.y }),
+        .rot = rinv,
+        .angle = -xform.angle
+    };
+
+}
+
+xform_t xform_compose(xform_t xform2,
+                      xform_t xform1) {
+
+    return (xform_t) {
+
+        .pos = translate_point(xform2.pos,
+                               rotate_point(xform2.rot, xform1.pos)),
+
+        .rot = rotate_compose(xform2.rot, xform1.rot),
+
+        .angle = xform2.angle + xform1.angle
+
+    };
+    
+}
+
+point2d_t xform_transform_point(xform_t xform,
+                            point2d_t p) {
+
+    return translate_point(rotate_point(xform.rot, p), xform.pos);
 
 }
  
@@ -268,6 +393,20 @@ void lsys_create(lsys_t* lsys,
 
     lsys->turn_angle_rad = turn_angle_deg * M_PI / 180.f;
 
+    for (int i=0; i<=LSYS_MAX_CYCLE_LENGTH; ++i) {
+        
+        if (i > 0 && fmod(turn_angle_deg*i, 360.) == 0) {
+            lsys->rotation_cycle_length = i;
+            break;
+        }
+        
+        float theta = lsys->turn_angle_rad * i;
+        
+        lsys->rotations[i].c = cosf(theta);
+        lsys->rotations[i].s = sinf(theta);
+        
+    }
+
     if (draw_chars) {
         lsys->draw_chars[0] = 1;
         for (const char* c=draw_chars; *c; ++c) {
@@ -288,6 +427,9 @@ void lsys_print(const lsys_t* lsys) {
         }
     }
     printf("  turn_angle_deg: %g\n", lsys->turn_angle_rad * 180.f / M_PI);
+    if (lsys->rotation_cycle_length) {
+        printf("  rotation_cycle_length: %d\n", lsys->rotation_cycle_length);
+    }
     printf("\n");
 
 }
@@ -353,20 +495,17 @@ char* lsys_build_string(const lsys_t* lsys, size_t max_depth) {
 void _lsys_execute_symbol(const lsys_t* lsys,
                           const char symbol,
                           darray_t* segments,
-                          lsys_state_t* state,
-                          darray_t* state_stack) {
+                          xform_t* state,
+                          darray_t* xform_stack) {
 
     if (isalpha(symbol)) {
 
         if (lsys->draw_chars[0] && !lsys->draw_chars[(int)symbol]) {
             return;
         }
-
-        float c = cosf(state->angle);
-        float s = sinf(state->angle);
             
-        float xnew = state->pos.x + c;
-        float ynew = state->pos.y + s;
+        float xnew = state->pos.x + state->rot.c;
+        float ynew = state->pos.y + state->rot.s;
 
         lsys_segment_t seg = { { state->pos.x, state->pos.y},
                                { xnew, ynew } };
@@ -378,18 +517,39 @@ void _lsys_execute_symbol(const lsys_t* lsys,
 
     } else if (symbol == '+' || symbol == '-') {
 
-        float delta = ( (symbol == '+') ?
-                        lsys->turn_angle_rad : -lsys->turn_angle_rad );
-        
-        state->angle += delta;
+        if (lsys->rotation_cycle_length) {
+
+            int delta = (symbol == '+') ? 1 : -1;
+
+            int t = state->angle;
+
+            t = positive_mod(t + delta,
+                             lsys->rotation_cycle_length);
+
+            const rot2d_t* r = lsys->rotations + t;
+
+            state->angle = t;
+            state->rot = *r;
+            
+        } else {
+
+            float delta = ( (symbol == '+') ?
+                            lsys->turn_angle_rad : -lsys->turn_angle_rad );
+            
+            state->angle += delta;
+
+            state->rot.c = cosf(state->angle);
+            state->rot.s = sinf(state->angle);
+
+        }
 
     } else if (symbol == '[') {
 
-        darray_push_back(state_stack, state);
+        darray_push_back(xform_stack, state);
 
     } else if (symbol == ']') {
 
-        darray_pop_back(state_stack, state);
+        darray_pop_back(xform_stack, state);
 
     } else {
 
@@ -408,20 +568,20 @@ darray_t* lsys_segments_from_string(const lsys_t* lsys,
     darray_create(segments, sizeof(lsys_segment_t),
                     LSYS_INIT_SEGMENTS_CAPACITY);
 
-    darray_t state_stack;
-    darray_create(&state_stack, sizeof(lsys_state_t),
-                  LSYS_INIT_STATES_CAPACITY);
+    darray_t xform_stack;
+    darray_create(&xform_stack, sizeof(xform_t),
+                    LSYS_INIT_STATES_CAPACITY);
 
-    lsys_state_t cur_state = LSYS_START_STATE;
+    xform_t cur_state = IDENTITY_XFORM;
 
     for (const char* psymbol=lstring; *psymbol; ++psymbol) {
 
         _lsys_execute_symbol(lsys, *psymbol, segments,
-                             &cur_state, &state_stack);
+                             &cur_state, &xform_stack);
 
     }
 
-    darray_destroy(&state_stack);
+    darray_destroy(&xform_stack);
 
     return segments;
 
@@ -431,8 +591,9 @@ void _lsys_segments_r(const lsys_t* lsys,
                       const char* lstring, 
                       size_t remaining_depth,
                       darray_t* segments,
-                      lsys_state_t* cur_state,
-                      darray_t* state_stack) {
+                      xform_t* cur_state,
+                      darray_t* xform_stack,
+                      lsys_memo_set_t* mset) {
 
     for (const char* psymbol=lstring; *psymbol; ++psymbol) {
 
@@ -442,14 +603,82 @@ void _lsys_segments_r(const lsys_t* lsys,
 
         if (remaining_depth && rule->replacement) {
 
+            size_t segment_start = segments->count;
+            xform_t xform_start = *cur_state;
+
+            if (mset) {
+
+                lsys_memo_t* memo = mset->memos[symbol];
+
+                if (memo && memo->memo_depth == remaining_depth) {
+
+                    //printf("playback %c %d\n", symbol, (int)memo->segment_count);
+
+                    xform_t update_xform =
+                        xform_compose(*cur_state, memo->init_inverse);
+
+                    darray_resize(segments, segment_start + memo->segment_count);
+
+                    const lsys_segment_t* src =
+                        darray_const_elem_ptr(segments, memo->segment_start);
+
+                    lsys_segment_t* dst =
+                        darray_elem_ptr(segments, segment_start);
+
+#ifdef _OPENMP                    
+                    int do_parallelize =
+                        (memo->segment_count >= mset->min_parallel_segments);
+#endif                    
+                    
+                    #pragma omp parallel for if (do_parallelize)
+                    for (size_t i=0; i<memo->segment_count; ++i) {
+                        lsys_segment_t newsrc = {
+                            xform_transform_point(update_xform, src[i].p0),
+                            xform_transform_point(update_xform, src[i].p1)
+                        };
+                        dst[i] = newsrc;
+                    }
+                    
+                    *cur_state = xform_compose(*cur_state, memo->delta_xform);
+
+                    continue;
+
+                }
+
+            }
+
             _lsys_segments_r(lsys, rule->replacement,
                              remaining_depth-1,
-                             segments, cur_state, state_stack);
+                             segments, cur_state, xform_stack,
+                             mset);
+
+            if (mset && !mset->memos[symbol]) {
+
+                size_t segment_count = segments->count - segment_start;
+
+                if (segment_count > mset->min_memo_segments ||
+                    remaining_depth == mset->max_depth - 2) {
+
+                    lsys_memo_t* new_memo = malloc(sizeof(lsys_memo_t));
+
+                    new_memo->memo_depth = remaining_depth;
+                    new_memo->segment_start = segment_start;
+                    new_memo->segment_count = segment_count;
+                    new_memo->init_inverse = xform_inverse(xform_start);
+
+                    new_memo->delta_xform = xform_compose(new_memo->init_inverse,
+                                                          *cur_state);
+
+                    mset->memos[symbol] = new_memo;
+
+                }
+
+            }
 
         } else {
 
             _lsys_execute_symbol(lsys, *psymbol, segments,
-                                 cur_state, state_stack);
+                                 cur_state, xform_stack);
 
         }
         
@@ -458,24 +687,40 @@ void _lsys_segments_r(const lsys_t* lsys,
 }
 
 darray_t* lsys_segments_recursive(const lsys_t* lsys,
-                                  size_t max_depth) {
+                                  size_t max_depth,
+                                  size_t min_memo_segments,
+                                  size_t min_parallel_segments) {
 
     darray_t* segments = malloc(sizeof(darray_t));
     
     darray_create(segments, sizeof(lsys_segment_t),
                     LSYS_INIT_SEGMENTS_CAPACITY);
 
-    darray_t state_stack;
-    darray_create(&state_stack, sizeof(lsys_state_t),
-                  LSYS_INIT_STATES_CAPACITY);
+    darray_t xform_stack;
+    darray_create(&xform_stack, sizeof(xform_t),
+                    LSYS_INIT_STATES_CAPACITY);
 
-    lsys_state_t cur_state = LSYS_START_STATE;
+    xform_t cur_state = IDENTITY_XFORM;
+
+    lsys_memo_set_t mset;
+    memset(&mset, 0, sizeof(mset));
+
+    mset.max_depth = max_depth;
+    mset.min_memo_segments = min_memo_segments;
+    mset.min_parallel_segments = min_parallel_segments;
 
     _lsys_segments_r(lsys, lsys->start, 
                      max_depth, segments,
-                     &cur_state, &state_stack);
+                     &cur_state, &xform_stack,
+                     &mset);
 
-    darray_destroy(&state_stack);
+    for (int i=0; i<LSYS_MAX_RULES; ++i) {
+        if (mset.memos[i]) {
+            free(mset.memos[i]);
+        }
+    }
+
+    darray_destroy(&xform_stack);
 
     return segments;
 
@@ -548,6 +793,10 @@ void parse_options(int argc, char** argv, options_t* opts) {
 
     int ok = 1;
 
+    int disable_precomputed_rotation = 0;
+    int disable_memoization = 0;
+    int disable_parallelization = 0;
+
     memset(opts, 0, sizeof(options_t));
     opts->max_segments = 100000;
 
@@ -619,6 +868,19 @@ void parse_options(int argc, char** argv, options_t* opts) {
                 break;
             }
 
+        } else if (!strcmp(arg, "-M")) {
+
+            disable_memoization = 1;
+            
+#ifdef _OPENMP            
+        } else if (!strcmp(arg, "-P")) {
+            
+            disable_parallelization = 1;
+#endif            
+        } else if (!strcmp(arg, "-R")) {
+            
+            disable_precomputed_rotation = 1;
+
         } else {
 
             fprintf(stderr, "error: unrecognized option %s\n\n", arg);
@@ -642,12 +904,51 @@ void parse_options(int argc, char** argv, options_t* opts) {
         printf("  -x MAXSEGMENTS maximum number of segments for output\n"
                "  -s             use string building method\n"
                "  -r             use recursive method (default)\n"
+               "  -M             disable memoization for recursive method\n"
+#ifdef _OPENMP               
+               "  -P             disable parallelization for memoization\n"
+#endif               
+               "  -R             don't precompute rotations\n"
                "\n");
         exit(1);
     }
 
     printf("using %s method\n",
            opts->method == LSYS_METHOD_STRING ? "string" : "recursion");
+    
+    if (opts->method == LSYS_METHOD_STRING) {
+        if (disable_memoization) {
+            printf("warning: disabling memoization has no effect for string method!\n");
+        }
+    }
+
+    int have_memo = (opts->method == LSYS_METHOD_RECURSION) && !disable_memoization;
+    
+    if (!have_memo) {
+        if (disable_parallelization) {
+            printf("warning: disabling parallelization has no effect when not memoizing\n");
+        }
+        opts->min_memo_segments = (size_t)-1;
+        opts->min_parallel_segments = (size_t)-1;
+        if (opts->method == LSYS_METHOD_RECURSION) {
+            printf("memoization is disabled\n");
+        } 
+    } else if (disable_parallelization) {
+        opts->min_memo_segments = 10000;
+        opts->min_parallel_segments = (size_t)-1;
+        printf("memoizing runs with > %d segments\n",
+               (int)opts->min_memo_segments);
+    } else {
+        opts->min_memo_segments = 100000;
+        opts->min_parallel_segments = 5000;
+        printf("memoizing runs with > %d segments and parallelizing when > %d segments\n",
+               (int)opts->min_memo_segments, (int)opts->min_parallel_segments);
+    }
+
+    if (disable_precomputed_rotation) {
+        printf("disabling precomputed rotation!\n");
+        opts->lsys->rotation_cycle_length = 0;
+    }
 
     printf("\n");
 
@@ -685,7 +986,9 @@ int main(int argc, char** argv) {
 
     } else {
 
-        segments = lsys_segments_recursive(opts.lsys, opts.max_depth);
+        segments = lsys_segments_recursive(opts.lsys, opts.max_depth,
+                                           opts.min_memo_segments,
+                                           opts.min_parallel_segments);
 
     }
 

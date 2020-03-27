@@ -15,10 +15,6 @@
 #include <math.h>
 #include <time.h>
 
-#ifdef _OPENMP
-#include <omp.h>
-#endif
-
 //////////////////////////////////////////////////////////////////////
 // for benchmarking
 
@@ -145,8 +141,7 @@ typedef struct lsys_memo_set {
 
     size_t max_depth;
     size_t min_memo_segments;
-    size_t min_parallel_segments;
-    
+
     lsys_memo_t* memos[LSYS_MAX_RULES];
 
 } lsys_memo_set_t;
@@ -167,8 +162,7 @@ darray_t* lsys_segments_from_string(const lsys_t* lsys,
 
 darray_t* lsys_segments_recursive(const lsys_t* lsys,
                                   size_t max_depth,
-                                  size_t min_memo_segments,
-                                  size_t min_parallel_segments);
+                                  size_t min_memo_segments);
 
 //////////////////////////////////////////////////////////////////////
 // set up some known L-Systems
@@ -202,7 +196,6 @@ typedef struct options {
     size_t        max_segments;
     lsys_method_t method;
     size_t        min_memo_segments;
-    size_t        min_parallel_segments;
 } options_t;
 
 void parse_options(int argc, char** argv, options_t* opts);
@@ -625,12 +618,6 @@ void _lsys_segments_r(const lsys_t* lsys,
                     lsys_segment_t* dst =
                         darray_elem_ptr(segments, segment_start);
 
-#ifdef _OPENMP                    
-                    int do_parallelize =
-                        (memo->segment_count >= mset->min_parallel_segments);
-#endif                    
-                    
-                    #pragma omp parallel for if (do_parallelize)
                     for (size_t i=0; i<memo->segment_count; ++i) {
                         lsys_segment_t newsrc = {
                             xform_transform_point(update_xform, src[i].p0),
@@ -688,8 +675,7 @@ void _lsys_segments_r(const lsys_t* lsys,
 
 darray_t* lsys_segments_recursive(const lsys_t* lsys,
                                   size_t max_depth,
-                                  size_t min_memo_segments,
-                                  size_t min_parallel_segments) {
+                                  size_t min_memo_segments) {
 
     darray_t* segments = malloc(sizeof(darray_t));
     
@@ -707,7 +693,6 @@ darray_t* lsys_segments_recursive(const lsys_t* lsys,
 
     mset.max_depth = max_depth;
     mset.min_memo_segments = min_memo_segments;
-    mset.min_parallel_segments = min_parallel_segments;
 
     _lsys_segments_r(lsys, lsys->start, 
                      max_depth, segments,
@@ -795,7 +780,6 @@ void parse_options(int argc, char** argv, options_t* opts) {
 
     int disable_precomputed_rotation = 0;
     int disable_memoization = 0;
-    int disable_parallelization = 0;
 
     memset(opts, 0, sizeof(options_t));
     opts->max_segments = 100000;
@@ -872,11 +856,6 @@ void parse_options(int argc, char** argv, options_t* opts) {
 
             disable_memoization = 1;
             
-#ifdef _OPENMP            
-        } else if (!strcmp(arg, "-P")) {
-            
-            disable_parallelization = 1;
-#endif            
         } else if (!strcmp(arg, "-R")) {
             
             disable_precomputed_rotation = 1;
@@ -905,9 +884,6 @@ void parse_options(int argc, char** argv, options_t* opts) {
                "  -s             use string building method\n"
                "  -r             use recursive method (default)\n"
                "  -M             disable memoization for recursive method\n"
-#ifdef _OPENMP               
-               "  -P             disable parallelization for memoization\n"
-#endif               
                "  -R             don't precompute rotations\n"
                "\n");
         exit(1);
@@ -925,24 +901,14 @@ void parse_options(int argc, char** argv, options_t* opts) {
     int have_memo = (opts->method == LSYS_METHOD_RECURSION) && !disable_memoization;
     
     if (!have_memo) {
-        if (disable_parallelization) {
-            printf("warning: disabling parallelization has no effect when not memoizing\n");
-        }
         opts->min_memo_segments = (size_t)-1;
-        opts->min_parallel_segments = (size_t)-1;
         if (opts->method == LSYS_METHOD_RECURSION) {
             printf("memoization is disabled\n");
         } 
-    } else if (disable_parallelization) {
-        opts->min_memo_segments = 10000;
-        opts->min_parallel_segments = (size_t)-1;
+    } else {
+        opts->min_memo_segments = 1000;
         printf("memoizing runs with > %d segments\n",
                (int)opts->min_memo_segments);
-    } else {
-        opts->min_memo_segments = 100000;
-        opts->min_parallel_segments = 5000;
-        printf("memoizing runs with > %d segments and parallelizing when > %d segments\n",
-               (int)opts->min_memo_segments, (int)opts->min_parallel_segments);
     }
 
     if (disable_precomputed_rotation) {
@@ -987,8 +953,7 @@ int main(int argc, char** argv) {
     } else {
 
         segments = lsys_segments_recursive(opts.lsys, opts.max_depth,
-                                           opts.min_memo_segments,
-                                           opts.min_parallel_segments);
+                                           opts.min_memo_segments);
 
     }
 
