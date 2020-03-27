@@ -37,6 +37,8 @@ def main():
     mean_times = np.zeros(nprogs)
     errs = np.zeros((2, nprogs))
 
+    plt.grid(color=[.9, .9, .9], zorder=-1, linewidth=.5)
+    
     for pidx, prog in enumerate(progs):
         presults = results[prog]
         assert set(presults.keys()) == test_names
@@ -51,20 +53,22 @@ def main():
 
     plt.errorbar(versions,
                  mean_times, errs, fmt='-', capsize=2,
-                 color=[.7, .7, .7], ecolor='k',
-                 linewidth=0.5, elinewidth=0.5, zorder=0,
+                 color=[.6, .6, .6], ecolor='k',
+                 linewidth=0.5, elinewidth=0.5, zorder=1,
                  barsabove=True)
 
 
     for i in range(2):
         mask = (is_c == bool(i))
         label = 'Python versions' if i == 0 else 'C versions'
-        plt.plot(versions[mask], mean_times[mask], '.', zorder=1, label=label)
+        plt.plot(versions[mask], mean_times[mask], '.', zorder=2, label=label)
 
     plt.legend(loc='upper right')
-    plt.xlabel('version')
+    plt.xlabel('program version')
     plt.ylabel('μs / segment')
     plt.title('L-System benchmark results')
+
+    plt.gca().set_axisbelow(True)
         
     plt.yscale('log')
     #plt.show()
