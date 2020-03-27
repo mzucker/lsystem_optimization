@@ -1,11 +1,9 @@
 #!/usr/bin/env python
-
 ######################################################################
 #
 # lsystems.py
 #
 # Matt Zucker
-# Written for ENGR 52, Spring 2020
 #
 ######################################################################
 #
@@ -80,7 +78,7 @@ KNOWN_LSYSTEMS = {
 # make a big ol' string from an L-System starting from its start state
 # using repeated string replacement.
 
-def lsystem_build_string(lsys, max_depth):
+def lsys_build_string(lsys, max_depth):
 
     lstring = lsys.start
 
@@ -107,7 +105,7 @@ def lsystem_build_string(lsys, max_depth):
 # segments is for appending
 # cur_state is read and returned
 
-def lsystem_execute_symbol(lsys, symbol, cur_state, stack, segments):
+def _lsys_execute_symbol(lsys, symbol, cur_state, stack, segments):
 
     cur_pos, cur_angle_deg = cur_state
 
@@ -150,7 +148,7 @@ def lsystem_execute_symbol(lsys, symbol, cur_state, stack, segments):
 #
 #  [(x0, y0), (x1, y1)]
 
-def lsystem_segments_from_string(lsys, lstring):
+def lsys_segments_from_string(lsys, lstring):
 
     cur_pos = np.array([0., 0.])
     cur_angle_deg = 0
@@ -163,20 +161,20 @@ def lsystem_segments_from_string(lsys, lstring):
     segments = []
 
     for symbol in lstring:
-        cur_state = lsystem_execute_symbol(lsys, symbol, cur_state,
-                                           stack, segments)
+        cur_state = _lsys_execute_symbol(lsys, symbol, cur_state,
+                                         stack, segments)
         
     return np.array(segments)
 
 ######################################################################
 # build up segment list recursively - don't call this function
-# directly, use lsystem_segments_recursive instead
+# directly, use lsys_segments_recursive instead
 
-def lsystem_segments_r(lsys, s,
-                       remaining_steps,
-                       cur_state,
-                       state_stack,
-                       segments):
+def _lsys_segments_r(lsys, s,
+                     remaining_steps,
+                     cur_state,
+                     state_stack,
+                     segments):
 
     # for each symbol in input
     for symbol in s:
@@ -188,22 +186,22 @@ def lsystem_segments_r(lsys, s,
             replacement = lsys.rules[symbol]
             
             # recursively call this function with fewer remaining steps
-            cur_state = lsystem_segments_r(lsys, replacement, 
-                                           remaining_steps-1,
-                                           cur_state,
-                                           state_stack, segments)
+            cur_state = _lsys_segments_r(lsys, replacement, 
+                                         remaining_steps-1,
+                                         cur_state,
+                                         state_stack, segments)
 
         else: # execute symbol directly
 
-            cur_state = lsystem_execute_symbol(lsys, symbol, cur_state,
-                                               state_stack, segments)
+            cur_state = _lsys_execute_symbol(lsys, symbol, cur_state,
+                                             state_stack, segments)
 
     return cur_state
 
 ######################################################################
 # build up segment list recursively by calling helper function above
 
-def lsystem_segments_recursive(lsys, max_depth):
+def lsys_segments_recursive(lsys, max_depth):
 
     cur_pos = np.array([0., 0.])
     cur_angle_deg = 0
@@ -215,11 +213,11 @@ def lsystem_segments_recursive(lsys, max_depth):
 
     s = lsys.start
 
-    lsystem_segments_r(lsys, s,
-                       max_depth,
-                       cur_state,
-                       state_stack,
-                       segments)
+    _lsys_segments_r(lsys, s,
+                     max_depth,
+                     cur_state,
+                     state_stack,
+                     segments)
 
     return np.array(segments)
 
@@ -231,10 +229,6 @@ def parse_options():
     parser = argparse.ArgumentParser(
         description='simple Python L-system renderer')
 
-    parser.add_argument('-x', dest='max_segments', metavar='MAXSEGMENTS',
-                        type=int, default=100000,
-                        help='maximum number of segments to plot')
-
     parser.add_argument('lname', metavar='LSYSTEM', nargs=1,
                         help='name of desired L-system',
                         type=str,
@@ -243,12 +237,16 @@ def parse_options():
     parser.add_argument('max_depth', metavar='MAXDEPTH', nargs=1,
                         help='maximum depth to evaluate', type=int)
 
+    parser.add_argument('-x', dest='max_segments', metavar='MAXSEGMENTS',
+                        type=int, default=100000,
+                        help='maximum number of segments to plot')
+    
     parser.add_argument('-t', dest='text_only', action='store_true',
                         help='use text output instead of PNG')
 
     parser.add_argument('-s', dest='use_recursion', action='store_false',
                         default=False,
-                        help='use string building method')
+                        help='use string building method (default)')
 
     parser.add_argument('-r', dest='use_recursion', action='store_true',
                         default=False,
@@ -268,7 +266,6 @@ def parse_options():
 
     return opts
 
-
 # main function
 def main():
 
@@ -279,13 +276,13 @@ def main():
 
     if opts.use_recursion:
         
-        segments = lsystem_segments_recursive(opts.lsys, opts.max_depth)
+        segments = lsys_segments_recursive(opts.lsys, opts.max_depth)
 
     else:
 
-        lstring = lsystem_build_string(opts.lsys, opts.max_depth)
+        lstring = lsys_build_string(opts.lsys, opts.max_depth)
 
-        segments = lsystem_segments_from_string(opts.lsys, lstring)
+        segments = lsys_segments_from_string(opts.lsys, lstring)
 
     # print elapsed time
     elapsed = (datetime.now() - start).total_seconds()

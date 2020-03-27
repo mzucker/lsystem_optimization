@@ -1,3 +1,14 @@
+//////////////////////////////////////////////////////////////////////
+//
+// lsystems.c
+//
+// Matt Zucker
+//
+//////////////////////////////////////////////////////////////////////
+//
+// Based on documentation in https://en.wikipedia.org/wiki/L-system and
+// http://paulbourke.net/fractals/lsys/
+
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
@@ -710,6 +721,7 @@ darray_t* lsys_segments_recursive(const lsys_t* lsys,
 }
 
 //////////////////////////////////////////////////////////////////////
+// definitions for L-Systems from websites listed at top of file
 
 void initialize_known_lsystems() {
 
@@ -927,7 +939,7 @@ void parse_options(int argc, char** argv, options_t* opts) {
         printf("\n");
         printf("options:\n");
         printf("  -x MAXSEGMENTS maximum number of segments for output\n"
-               "  -s             use string building method\n"
+               "  -s             use string building method (default)\n"
                "  -r             use recursive method\n"
                "  -m MEMODEPTH   enable memoization for recursive method\n"
                "  -t SEGMENTS    parallelize memoization for more than SEGMENTS segments\n"
