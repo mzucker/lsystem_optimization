@@ -244,11 +244,11 @@ def parse_options():
                         help='use text output instead of PNG')
 
     parser.add_argument('-s', dest='use_recursion', action='store_false',
-                        default=False,
+                        default=True,
                         help='use string building method (default)')
 
     parser.add_argument('-r', dest='use_recursion', action='store_true',
-                        default=False,
+                        default=True,
                         help='use recursive method')
                         
     opts = parser.parse_args()
