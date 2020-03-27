@@ -5,7 +5,20 @@
 #include <math.h>
 #include <time.h>
 
-typedef struct dynarray {
+#ifdef _OPENMP
+#include <omp.h>
+#endif
+
+//////////////////////////////////////////////////////////////////////
+// for benchmarking
+
+double get_time_as_double();
+
+//////////////////////////////////////////////////////////////////////
+// dynamic array
+
+// dynamic array data type
+typedef struct darray {
 
     size_t elem_size;
     size_t capacity;
@@ -13,67 +26,99 @@ typedef struct dynarray {
     
     unsigned char* data;
 
-} dynarray_t;
+} darray_t;
+
+// dynamic array functions
+void darray_create(darray_t* darray, size_t elem_size, size_t capacity);
+void darray_resize(darray_t* darray, size_t new_count);
+void darray_extend(darray_t* darray, const void* elements, size_t count);
+void darray_push_back(darray_t* darray, const void* elem);
+void darray_pop_back(darray_t* darray, void* elem);
+
+void* darray_elem_ptr(darray_t* darray, size_t idx);
+const void* darray_const_elem_ptr(const darray_t* darray, size_t idx);
+
+void darray_get(const darray_t* darray, size_t idx, void* dst);
+void darray_set(darray_t* darray, size_t idx, const void* src);
 
 //////////////////////////////////////////////////////////////////////
+// geometry utils
 
-enum {
-    MAX_RULES = 128,
-    MAX_CYCLE_LENGTH = 256,
-    INIT_STRING_CAPACITY = 4096,
-    INIT_STATES_CAPACITY = 64,
-    INIT_SEGMENTS_CAPACITY = 1024
-};
-
-typedef struct vec2d {
+// 2D point
+typedef struct point2d {
     float x, y;
-} vec2d_t;
+} point2d_t;
 
+// 2D rotation
 typedef struct rot2d {
     float c, s;
 } rot2d_t;
 
+// 2D transformation
 typedef struct xform {
-    vec2d_t pos;
-    rot2d_t rot;
-    float   turn;
+    point2d_t pos;
+    rot2d_t   rot;
+    float     angle;
 } xform_t;
 
+// identity transform
 static const xform_t IDENTITY_XFORM = {
     { 0.f, 0.f, }, { 1.f, 0.f }, 0.f
 };
 
-typedef struct lsystem_segment {
-    vec2d_t p0, p1;
-} lsystem_segment_t;
+// 2D geometry functions
+int positive_mod(int ticks, int divisor);
+point2d_t rotate_point(const rot2d_t R, const point2d_t p);
+rot2d_t rotate_compose(const rot2d_t R2, const rot2d_t R1);
+point2d_t translate_point(const point2d_t p, const point2d_t q);
+xform_t xform_inverse(xform_t xform);
+xform_t xform_compose(xform_t xform2, xform_t xform1);
+point2d_t xform_transform_point(xform_t xform, point2d_t p);
 
-typedef struct lsystem_rule_tagged {
-    
+//////////////////////////////////////////////////////////////////////
+// L-System types/functions
+
+// misc enums
+enum {
+    LSYS_MAX_RULES = 128,
+    LSYS_MAX_CYCLE_LENGTH = 256,
+    LSYS_INIT_STRING_CAPACITY = 4096,
+    LSYS_INIT_STATES_CAPACITY = 64,
+    LSYS_INIT_SEGMENTS_CAPACITY = 1024
+};
+
+// line segment is 2 points
+typedef struct lsys_segment {
+    point2d_t p0, p1;
+} lsys_segment_t;
+
+// rule tagged with string length for string replacement
+typedef struct lsys_sized_string {
     const char* replacement;
     size_t length;
-    
-} lsystem_rule_tagged_t;
+} lsys_sized_string_t;
 
+// L-System datatype
 typedef struct lsystem {
 
-    const char*           name;
-    const char*           start;
-    lsystem_rule_tagged_t rules[MAX_RULES];
-    unsigned char         draw_chars[MAX_RULES];
-    double                turn_angle_rad;
-    int                   rotation_cycle_length;
-    rot2d_t               rotations[MAX_CYCLE_LENGTH];
+    const char*            name;
+    const char*            start;
+    lsys_sized_string_t rules[LSYS_MAX_RULES];
+    unsigned char          draw_chars[LSYS_MAX_RULES];
+    double                 turn_angle_rad;
+    int                    rotation_cycle_length;
+    rot2d_t                rotations[LSYS_MAX_CYCLE_LENGTH];
     
-} lsystem_t;
+} lsys_t;
 
-typedef struct lsystem_rule {
-    
-    char variable;
+// lsystem character + replacement pair, for defining L-Systems
+typedef struct lsys_rule_def {
+    char symbol;
     const char* replacement;
-    
-} lsystem_rule_t;
+} lsys_rule_def_t;
 
-typedef struct lsystem_memo {
+// datatype for memoizing a single L-System rule
+typedef struct lsys_memo {
     
     size_t segment_start;
     size_t segment_count;
@@ -81,17 +126,39 @@ typedef struct lsystem_memo {
     xform_t init_inverse;
     xform_t delta_xform;
     
-} lsystem_memo_t;
+} lsys_memo_t;
 
-typedef struct lsystem_memo_set {
+// datatype for memoizing an entire L-system
+typedef struct lsys_memo_set {
 
     size_t memo_depth;
     size_t min_parallel_segments;
     
-    lsystem_memo_t* memos[MAX_RULES];
+    lsys_memo_t* memos[LSYS_MAX_RULES];
 
-} lsystem_memo_set_t;
+} lsys_memo_set_t;
 
+void lsys_create(lsys_t* lsys,
+                 const char* name,
+                 const char* start,
+                 lsys_rule_def_t const rules[],
+                 double turn_angle_deg,
+                 const char* draw_chars);
+
+void lsys_print(const lsys_t* lsys);
+
+char* lsys_build_string(const lsys_t* lsys, size_t max_depth);
+
+darray_t* lsys_segments_from_string(const lsys_t* lsys,
+                                    const char* lstring);
+
+darray_t* lsys_segments_recursive(const lsys_t* lsys,
+                                  size_t max_depth,
+                                  size_t memo_depth,
+                                  size_t min_parallel_segments);
+
+//////////////////////////////////////////////////////////////////////
+// set up some known L-Systems
 
 enum {
     LSYS_SIERPINSKI_ARROWHEAD = 0, // depth 17 takes ~5 sec
@@ -104,23 +171,40 @@ enum {
     NUM_KNOWN_LSYSTEMS
 };
 
-lsystem_t KNOWN_LSYSTEMS[NUM_KNOWN_LSYSTEMS];
+lsys_t KNOWN_LSYSTEMS[NUM_KNOWN_LSYSTEMS];
+
+void initialize_known_lsystems();
+
+//////////////////////////////////////////////////////////////////////
+// options for running this program
+
+typedef enum lsys_method {
+    LSYS_METHOD_STRING,
+    LSYS_METHOD_RECURSION
+} lsys_method_t;
+
+typedef struct options {
+    lsys_t*       lsys;
+    size_t        max_depth;
+    size_t        max_segments;
+    lsys_method_t method;
+    size_t        memo_depth;
+    size_t        min_parallel_segments;
+} options_t;
+
+void parse_options(int argc, char** argv, options_t* opts);
 
 //////////////////////////////////////////////////////////////////////
 
-typedef enum method {
-    METHOD_STRING,
-    METHOD_RECURSION
-} method_t;
+double get_time_as_double() {
 
-typedef struct options {
-    lsystem_t* lsys;
-    size_t     max_depth;
-    size_t     memo_depth;
-    size_t     min_parallel_segments;
-    method_t   method;
-    size_t     max_segments;
-} options_t;
+    struct timespec tp;
+
+    clock_gettime(CLOCK_REALTIME, &tp);
+
+    return (double)tp.tv_sec + (double)tp.tv_nsec * 1e-9;
+
+}
 
 //////////////////////////////////////////////////////////////////////
 
@@ -135,16 +219,16 @@ int positive_mod(int ticks, int divisor) {
 
 }
 
-vec2d_t rotate(const rot2d_t R, const vec2d_t p) {
+point2d_t rotate_point(const rot2d_t R, const point2d_t p) {
 
-    return (vec2d_t){
+    return (point2d_t){
         R.c * p.x - R.s * p.y,
         R.s * p.x + R.c * p.y
     };
 
 }
 
-rot2d_t rotateR(const rot2d_t R2, const rot2d_t R1) {
+rot2d_t rotate_compose(const rot2d_t R2, const rot2d_t R1) {
 
     return (rot2d_t) {
         R2.c * R1.c - R2.s * R1.s,
@@ -152,10 +236,10 @@ rot2d_t rotateR(const rot2d_t R2, const rot2d_t R1) {
     };
 
 }
-
-vec2d_t translate(const vec2d_t p, const vec2d_t q) {
+ 
+point2d_t translate_point(const point2d_t p, const point2d_t q) {
     
-    return (vec2d_t) { p.x + q.x, p.y + q.y };
+    return (point2d_t) { p.x + q.x, p.y + q.y };
 
 }
 
@@ -164,9 +248,9 @@ xform_t xform_inverse(xform_t xform) {
     rot2d_t rinv = { xform.rot.c, -xform.rot.s };
 
     return (xform_t) {
-        .pos = rotate(rinv, (vec2d_t){ -xform.pos.x, -xform.pos.y }),
+        .pos = rotate_point(rinv, (point2d_t){ -xform.pos.x, -xform.pos.y }),
         .rot = rinv,
-        .turn = -xform.turn
+        .angle = -xform.angle
     };
 
 }
@@ -176,119 +260,109 @@ xform_t xform_compose(xform_t xform2,
 
     return (xform_t) {
 
-        .pos = translate(xform2.pos,
-                         rotate(xform2.rot, xform1.pos)),
+        .pos = translate_point(xform2.pos,
+                               rotate_point(xform2.rot, xform1.pos)),
 
-        .rot = rotateR(xform2.rot, xform1.rot),
+        .rot = rotate_compose(xform2.rot, xform1.rot),
 
-        .turn = xform2.turn + xform1.turn
+        .angle = xform2.angle + xform1.angle
 
     };
     
 }
 
-vec2d_t xform_transform_point(xform_t xform,
-                             vec2d_t p) {
+point2d_t xform_transform_point(xform_t xform,
+                            point2d_t p) {
 
-    return translate(rotate(xform.rot, p), xform.pos);
-
-}
-
-void xform_print(const char* name, xform_t xform) {
-
-    printf("%s x=%.2f, y=%.2f, c=%.2f, s=%.2f, turn=%.2f\n",
-           name,
-           xform.pos.x, xform.pos.y,
-           xform.rot.c, xform.rot.s,
-           xform.turn);
+    return translate_point(rotate_point(xform.rot, p), xform.pos);
 
 }
-
+ 
 //////////////////////////////////////////////////////////////////////
 
-void dynarray_create(dynarray_t* dynarray, size_t elem_size, size_t capacity) {
+void darray_create(darray_t* darray, size_t elem_size, size_t capacity) {
     
     size_t alloc_size = elem_size * capacity;
     
-    dynarray->elem_size = elem_size;
-    dynarray->count = 0;
-    dynarray->capacity = capacity;
-    dynarray->data = malloc(alloc_size);
+    darray->elem_size = elem_size;
+    darray->count = 0;
+    darray->capacity = capacity;
+    darray->data = malloc(alloc_size);
     
 }
 
-void dynarray_resize(dynarray_t* dynarray, size_t new_count) {
+void darray_resize(darray_t* darray, size_t new_count) {
 
-    if (new_count > dynarray->capacity) {
+    if (new_count > darray->capacity) {
         
-        size_t new_capacity = dynarray->capacity;
+        size_t new_capacity = darray->capacity;
         
         while (new_capacity <= new_count) {
             new_capacity *= 2;
         }
 
-        size_t alloc_size = dynarray->elem_size * new_capacity;
+        size_t alloc_size = darray->elem_size * new_capacity;
 
-        dynarray->data = realloc(dynarray->data, alloc_size);
-        dynarray->capacity = new_capacity;
+        darray->data = realloc(darray->data, alloc_size);
+        darray->capacity = new_capacity;
         
     }
 
-    dynarray->count = new_count;
+    darray->count = new_count;
         
 }
 
-void dynarray_extend(dynarray_t* dynarray, const void* elements, size_t count) {
+void darray_extend(darray_t* darray, const void* elements, size_t count) {
 
-    size_t offset = dynarray->elem_size * dynarray->count;
+    size_t offset = darray->elem_size * darray->count;
 
-    dynarray_resize(dynarray, dynarray->count + count);
+    darray_resize(darray, darray->count + count);
 
-    memcpy(dynarray->data + offset, elements, count*dynarray->elem_size);
+    memcpy(darray->data + offset, elements, count*darray->elem_size);
 
 }
 
-void* dynarray_elem_ptr(dynarray_t* dynarray, size_t idx) {
-    return dynarray->data + idx*dynarray->elem_size;
+void darray_push_back(darray_t* darray, const void* elem) {
+    darray_extend(darray, elem, 1);
 }
 
-const void* dynarray_const_elem_ptr(const dynarray_t* dynarray, size_t idx) {
-    return dynarray->data + idx*dynarray->elem_size;
+void* darray_elem_ptr(darray_t* darray, size_t idx) {
+    return darray->data + idx*darray->elem_size;
 }
 
-void dynarray_get(const dynarray_t* dynarray, size_t idx, void* dst) {
-    memcpy(dst, dynarray_const_elem_ptr(dynarray, idx), dynarray->elem_size);
+const void* darray_const_elem_ptr(const darray_t* darray, size_t idx) {
+    return darray->data + idx*darray->elem_size;
 }
 
-void dynarray_set(dynarray_t* dynarray, size_t idx, const void* src) {
-    memcpy(dynarray_elem_ptr(dynarray, idx), src, dynarray->elem_size);
+void darray_get(const darray_t* darray, size_t idx, void* dst) {
+    memcpy(dst, darray_const_elem_ptr(darray, idx), darray->elem_size);
+}
+
+void darray_set(darray_t* darray, size_t idx, const void* src) {
+    memcpy(darray_elem_ptr(darray, idx), src, darray->elem_size);
 }
  
-void dynarray_append(dynarray_t* dynarray, const void* elem) {
-    dynarray_extend(dynarray, elem, 1);
+void darray_pop_back(darray_t* darray, void* dst) {
+    darray->count -= 1;
+    size_t offset = darray->count * darray->elem_size;
+    memcpy(dst, (const void*)darray->data + offset, darray->elem_size);
 }
 
-void dynarray_pop(dynarray_t* dynarray, void* dst) {
-    dynarray->count -= 1;
-    size_t offset = dynarray->count * dynarray->elem_size;
-    memcpy(dst, (const void*)dynarray->data + offset, dynarray->elem_size);
+void darray_clear(darray_t* darray) {
+    darray->count = 0;
 }
 
-void dynarray_clear(dynarray_t* dynarray) {
-    dynarray->count = 0;
-}
-
-void dynarray_destroy(dynarray_t* dynarray) {
-    free(dynarray->data);
-    memset(dynarray, 0, sizeof(dynarray_t));
+void darray_destroy(darray_t* darray) {
+    free(darray->data);
+    memset(darray, 0, sizeof(darray_t));
 }
 
 //////////////////////////////////////////////////////////////////////
 
-void lsystem_create(lsystem_t* lsys,
+void lsys_create(lsys_t* lsys,
                     const char* name,
                     const char* start,
-                    lsystem_rule_t const rules[],
+                    lsys_rule_def_t const rules[],
                     double turn_angle_deg,
                     const char* draw_chars) {
 
@@ -298,15 +372,15 @@ void lsystem_create(lsystem_t* lsys,
     memset(lsys->rules, 0, sizeof(lsys->rules));
     memset(lsys->draw_chars, 0, sizeof(lsys->draw_chars));
 
-    for (const lsystem_rule_t* src_rule=rules; src_rule->variable; ++src_rule) {
-        lsystem_rule_tagged_t* dst_rule = lsys->rules + (int)src_rule->variable;
+    for (const lsys_rule_def_t* src_rule=rules; src_rule->symbol; ++src_rule) {
+        lsys_sized_string_t* dst_rule = lsys->rules + (int)src_rule->symbol;
         dst_rule->replacement = src_rule->replacement;
         dst_rule->length = strlen(src_rule->replacement);
     }
 
     lsys->turn_angle_rad = turn_angle_deg * M_PI / 180.f;
 
-    for (int i=0; i<=MAX_CYCLE_LENGTH; ++i) {
+    for (int i=0; i<=LSYS_MAX_CYCLE_LENGTH; ++i) {
         
         if (i > 0 && fmod(turn_angle_deg*i, 360.) == 0) {
             lsys->rotation_cycle_length = i;
@@ -329,72 +403,12 @@ void lsystem_create(lsystem_t* lsys,
 
 }
 
-void initialize_known_lsystems() {
-
-    lsystem_create(KNOWN_LSYSTEMS + LSYS_SIERPINSKI_TRIANGLE,
-                   "sierpinski_triangle", "F-G-G",
-                   (lsystem_rule_t[]){
-                     { 'F', "F-G+F+G-F" },
-                     { 'G', "GG" }, 
-                     { 0, 0 }
-                   }, 120, NULL);
-
-    lsystem_create(KNOWN_LSYSTEMS + LSYS_SIERPINSKI_ARROWHEAD,
-                   "sierpinski_arrowhead", "A",
-                   (lsystem_rule_t[]){
-                     { 'A', "B-A-B" }, 
-                     { 'B', "A+B+A" }, 
-                     { 0, 0 }
-                   }, 60, NULL);
-    
-    lsystem_create(KNOWN_LSYSTEMS + LSYS_DRAGON_CURVE,
-                   "dragon_curve", "FX",
-                   (lsystem_rule_t[]){
-                     { 'X', "X+YF+" },
-                     { 'Y', "-FX-Y" },
-                   }, 90, NULL);
-    
-    lsystem_create(KNOWN_LSYSTEMS + LSYS_BARNSLEY_FERN,
-                   "barnsley_fern", "X",
-                   (lsystem_rule_t[]){
-                     { 'X', "F+[[X]-X]-F[-FX]+X" },
-                     { 'F', "FF" },
-                     { 0, 0 }
-                   }, 25, NULL);
-
-    lsystem_create(KNOWN_LSYSTEMS + LSYS_STICKS,
-                   "sticks", "X",
-                   (lsystem_rule_t[]){
-                     { 'X', "F[+X]F[-X]+X" },
-                     { 'F', "FF" },
-                     { 0, 0 }
-                   }, 20, "F");
-
-    lsystem_create(KNOWN_LSYSTEMS + LSYS_HILBERT,
-                   "hilbert", "L",
-                   (lsystem_rule_t[]){
-                     { 'L', "+RF-LFL-FR+" },
-                     { 'R', "-LF+RFR+FL-" },
-                     { 0, 0 }
-                   }, 90, "F");
-
-    lsystem_create(KNOWN_LSYSTEMS + LSYS_PENTAPLEXITY,
-                   "pentaplexity", "F++F++F++F++F",
-                   (lsystem_rule_t[]){
-                     { 'F', "F++F++F+++++F-F++F" },
-                     { 0, 0 }
-                   }, 36, NULL);
-                   
-}
-
-
-
-void lsystem_print(const lsystem_t* lsys) {
+void lsys_print(const lsys_t* lsys) {
 
     printf("%s:\n", lsys->name);
     printf("  start: %s\n", lsys->start);
     printf("  rules:\n");
-    for (int i=0; i<MAX_RULES; ++i) {
+    for (int i=0; i<LSYS_MAX_RULES; ++i) {
         if (lsys->rules[i].replacement) {
             printf("    %c -> %s\n", i, lsys->rules[i].replacement);
         }
@@ -407,18 +421,18 @@ void lsystem_print(const lsystem_t* lsys) {
 
 }
 
-char* lsystem_build_string(const lsystem_t* lsys,
-                           size_t max_depth) {
+char* lsys_build_string(const lsys_t* lsys, size_t max_depth) {
     
-    dynarray_t string_dynarrays[2];
+    darray_t string_darrays[2];
     
     for (int i=0; i<2; ++i) {
-        dynarray_create(string_dynarrays + i, sizeof(char), INIT_STRING_CAPACITY);
+        darray_create(string_darrays + i, sizeof(char),
+                        LSYS_INIT_STRING_CAPACITY);
     }
 
     int cur_idx = 0;
     
-    dynarray_extend(string_dynarrays + cur_idx,
+    darray_extend(string_darrays + cur_idx,
                   lsys->start,
                   strlen(lsys->start));
 
@@ -426,27 +440,27 @@ char* lsystem_build_string(const lsystem_t* lsys,
 
         int next_idx = 1 - cur_idx;
 
-        dynarray_t* src_dynarray = string_dynarrays + cur_idx;
-        dynarray_t* dst_dynarray = string_dynarrays + next_idx;
+        darray_t* src_darray = string_darrays + cur_idx;
+        darray_t* dst_darray = string_darrays + next_idx;
 
-        dynarray_resize(dst_dynarray, 0);
+        darray_resize(dst_darray, 0);
         
-        const char* start = (const char*)src_dynarray->data;
-        const char* end = start + src_dynarray->count;
+        const char* start = (const char*)src_darray->data;
+        const char* end = start + src_darray->count;
 
         for (const char* c=start; c!=end; ++c) {
 
-            const lsystem_rule_tagged_t* rule = lsys->rules + (int)*c;
+            const lsys_sized_string_t* rule = lsys->rules + (int)*c;
             
             if (rule->replacement) {
                 
-                dynarray_extend(dst_dynarray,
+                darray_extend(dst_darray,
                               rule->replacement,
                               rule->length);
 
             } else {
 
-                dynarray_append(dst_dynarray, c);
+                darray_push_back(dst_darray, c);
 
             }
 
@@ -457,19 +471,19 @@ char* lsystem_build_string(const lsystem_t* lsys,
     }
 
     const char nul = '\0';
-    dynarray_append(string_dynarrays + cur_idx, &nul);
+    darray_push_back(string_darrays + cur_idx, &nul);
 
-    dynarray_destroy(string_dynarrays + (1 - cur_idx));
+    darray_destroy(string_darrays + (1 - cur_idx));
 
-    return (char*)string_dynarrays[cur_idx].data;
+    return (char*)string_darrays[cur_idx].data;
 
 }
 
-void lsystem_execute_symbol(const lsystem_t* lsys,
-                            const char symbol,
-                            dynarray_t* segments,
-                            xform_t* state,
-                            dynarray_t* xform_stack) {
+void _lsys_execute_symbol(const lsys_t* lsys,
+                          const char symbol,
+                          darray_t* segments,
+                          xform_t* state,
+                          darray_t* xform_stack) {
 
     if (isalpha(symbol)) {
 
@@ -480,10 +494,10 @@ void lsystem_execute_symbol(const lsystem_t* lsys,
         float xnew = state->pos.x + state->rot.c;
         float ynew = state->pos.y + state->rot.s;
 
-        lsystem_segment_t seg = { { state->pos.x, state->pos.y},
-                                  { xnew, ynew } };
+        lsys_segment_t seg = { { state->pos.x, state->pos.y},
+                               { xnew, ynew } };
 
-        dynarray_append(segments, &seg);
+        darray_push_back(segments, &seg);
 
         state->pos.x = xnew;
         state->pos.y = ynew;
@@ -494,14 +508,14 @@ void lsystem_execute_symbol(const lsystem_t* lsys,
 
             int delta = (symbol == '+') ? 1 : -1;
 
-            int t = state->turn;
+            int t = state->angle;
 
             t = positive_mod(t + delta,
                              lsys->rotation_cycle_length);
 
             const rot2d_t* r = lsys->rotations + t;
 
-            state->turn = t;
+            state->angle = t;
             state->rot = *r;
             
         } else {
@@ -509,20 +523,20 @@ void lsystem_execute_symbol(const lsystem_t* lsys,
             float delta = ( (symbol == '+') ?
                             lsys->turn_angle_rad : -lsys->turn_angle_rad );
             
-            state->turn += delta;
+            state->angle += delta;
 
-            state->rot.c = cosf(state->turn);
-            state->rot.s = sinf(state->turn);
+            state->rot.c = cosf(state->angle);
+            state->rot.s = sinf(state->angle);
 
         }
 
     } else if (symbol == '[') {
 
-        dynarray_append(xform_stack, state);
+        darray_push_back(xform_stack, state);
 
     } else if (symbol == ']') {
 
-        dynarray_pop(xform_stack, state);
+        darray_pop_back(xform_stack, state);
 
     } else {
 
@@ -533,56 +547,54 @@ void lsystem_execute_symbol(const lsystem_t* lsys,
 
 }
 
-typedef struct segment_xform_data {
-    
-    lsystem_segment_t* dst;
-    const lsystem_segment_t* src;
-    size_t count;
-    const xform_t* update_xform;
-       
-} segment_xform_data_t;
+darray_t* lsys_segments_from_string(const lsys_t* lsys,
+                                    const char* lstring) {
 
-void lsystem_transform_segments(void* ptr) {
+    darray_t* segments = malloc(sizeof(darray_t));
 
-    const segment_xform_data_t* sdata = ptr;
+    darray_create(segments, sizeof(lsys_segment_t),
+                    LSYS_INIT_SEGMENTS_CAPACITY);
 
-    lsystem_segment_t* dst = sdata->dst;
-    const lsystem_segment_t* src = sdata->src;
-                    
-    for (size_t i=0; i<sdata->count; ++i) {
+    darray_t xform_stack;
+    darray_create(&xform_stack, sizeof(xform_t),
+                    LSYS_INIT_STATES_CAPACITY);
 
-        lsystem_segment_t newsrc = {
-            xform_transform_point(*sdata->update_xform, src->p0),
-            xform_transform_point(*sdata->update_xform, src->p1)
-        };
-
-        *dst++ = newsrc;
-        src++;
-
-    }
-
-}
-
-
-void lsystem_segments_r(const lsystem_t* lsys,
-                        const char* lstring, 
-                        size_t max_depth,
-                        dynarray_t* segments,
-                        xform_t* cur_state,
-                        dynarray_t* xform_stack,
-                        lsystem_memo_set_t* mset) {
+    xform_t cur_state = IDENTITY_XFORM;
 
     for (const char* psymbol=lstring; *psymbol; ++psymbol) {
 
-        const lsystem_rule_tagged_t* rule = lsys->rules + (int)*psymbol;
+        _lsys_execute_symbol(lsys, *psymbol, segments,
+                             &cur_state, &xform_stack);
+
+    }
+
+    darray_destroy(&xform_stack);
+
+    return segments;
+
+}
+
+void _lsys_segments_r(const lsys_t* lsys,
+                      const char* lstring, 
+                      size_t max_depth,
+                      darray_t* segments,
+                      xform_t* cur_state,
+                      darray_t* xform_stack,
+                      lsys_memo_set_t* mset) {
+
+    for (const char* psymbol=lstring; *psymbol; ++psymbol) {
+
+        int symbol = *psymbol;
+        
+        const lsys_sized_string_t* rule = lsys->rules + symbol;
 
         if (max_depth && rule->replacement) {
 
-            lsystem_memo_t* active_memo = 0;
+            lsys_memo_t* active_memo = 0;
 
             if (mset && max_depth == mset->memo_depth) {
 
-                lsystem_memo_t* memo = mset->memos[(int)*psymbol];
+                lsys_memo_t* memo = mset->memos[symbol];
 
                 if (memo) {
 
@@ -591,13 +603,13 @@ void lsystem_segments_r(const lsystem_t* lsys,
                         xform_compose(*cur_state, memo->init_inverse);
 
                     size_t init_count = segments->count;
-                    dynarray_resize(segments, init_count + memo->segment_count);
+                    darray_resize(segments, init_count + memo->segment_count);
 
-                    const lsystem_segment_t* src =
-                        dynarray_const_elem_ptr(segments, memo->segment_start);
+                    const lsys_segment_t* src =
+                        darray_const_elem_ptr(segments, memo->segment_start);
 
-                    lsystem_segment_t* dst =
-                        dynarray_elem_ptr(segments, init_count);
+                    lsys_segment_t* dst =
+                        darray_elem_ptr(segments, init_count);
 
 #ifdef _OPENMP                    
                     int do_parallelize =
@@ -606,7 +618,7 @@ void lsystem_segments_r(const lsystem_t* lsys,
                     
                     #pragma omp parallel for if (do_parallelize)
                     for (size_t i=0; i<memo->segment_count; ++i) {
-                        lsystem_segment_t newsrc = {
+                        lsys_segment_t newsrc = {
                             xform_transform_point(update_xform, src[i].p0),
                             xform_transform_point(update_xform, src[i].p1)
                         };
@@ -619,22 +631,22 @@ void lsystem_segments_r(const lsystem_t* lsys,
 
                 } else {
                     
-                    active_memo = malloc(sizeof(lsystem_memo_t));
+                    active_memo = malloc(sizeof(lsys_memo_t));
                     
                     active_memo->segment_start = segments->count;
                     active_memo->segment_count = segments->count;
                     active_memo->init_inverse = xform_inverse(*cur_state);
                     
-                    mset->memos[(int)*psymbol] = active_memo;
+                    mset->memos[symbol] = active_memo;
 
                 }
 
             }
 
-            lsystem_segments_r(lsys, rule->replacement,
-                               max_depth-1,
-                               segments, cur_state, xform_stack,
-                               mset);
+            _lsys_segments_r(lsys, rule->replacement,
+                             max_depth-1,
+                             segments, cur_state, xform_stack,
+                             mset);
 
             if (active_memo) {
                 
@@ -649,8 +661,8 @@ void lsystem_segments_r(const lsystem_t* lsys,
 
         } else {
 
-            lsystem_execute_symbol(lsys, *psymbol, segments,
-                                   cur_state, xform_stack);
+            _lsys_execute_symbol(lsys, *psymbol, segments,
+                                 cur_state, xform_stack);
 
         }
         
@@ -658,78 +670,102 @@ void lsystem_segments_r(const lsystem_t* lsys,
 
 }
 
-dynarray_t* lsystem_segments_recursive(const lsystem_t* lsys,
-                                       size_t max_depth,
-                                       size_t memo_depth,
-                                       size_t min_parallel_segments) {
+darray_t* lsys_segments_recursive(const lsys_t* lsys,
+                                  size_t max_depth,
+                                  size_t memo_depth,
+                                  size_t min_parallel_segments) {
 
-    dynarray_t* segments = malloc(sizeof(dynarray_t));
+    darray_t* segments = malloc(sizeof(darray_t));
     
-    dynarray_create(segments, sizeof(lsystem_segment_t), INIT_SEGMENTS_CAPACITY);
+    darray_create(segments, sizeof(lsys_segment_t),
+                    LSYS_INIT_SEGMENTS_CAPACITY);
 
-    dynarray_t xform_stack;
-    dynarray_create(&xform_stack, sizeof(xform_t), INIT_STATES_CAPACITY);
+    darray_t xform_stack;
+    darray_create(&xform_stack, sizeof(xform_t),
+                    LSYS_INIT_STATES_CAPACITY);
 
     xform_t cur_state = IDENTITY_XFORM;
 
-    lsystem_memo_set_t mset;
+    lsys_memo_set_t mset;
     memset(&mset, 0, sizeof(mset));
 
     mset.memo_depth = memo_depth;
     mset.min_parallel_segments = min_parallel_segments;
 
-    lsystem_segments_r(lsys, lsys->start, 
-                       max_depth, segments,
-                       &cur_state, &xform_stack,
-                       memo_depth ? &mset : NULL);
+    _lsys_segments_r(lsys, lsys->start, 
+                     max_depth, segments,
+                     &cur_state, &xform_stack,
+                     memo_depth ? &mset : NULL);
 
-    for (int i=0; i<MAX_RULES; ++i) {
+    for (int i=0; i<LSYS_MAX_RULES; ++i) {
         if (mset.memos[i]) {
             free(mset.memos[i]);
         }
     }
 
-    dynarray_destroy(&xform_stack);
+    darray_destroy(&xform_stack);
 
     return segments;
 
 }
-
-dynarray_t* lsystem_segments_from_string(const lsystem_t* lsys,
-                                       const char* lstring) {
-
-    dynarray_t* segments = malloc(sizeof(dynarray_t));
-
-    dynarray_create(segments, sizeof(lsystem_segment_t), INIT_SEGMENTS_CAPACITY);
-
-    dynarray_t xform_stack;
-    dynarray_create(&xform_stack, sizeof(xform_t), INIT_STATES_CAPACITY);
-
-    xform_t cur_state = IDENTITY_XFORM;
-
-    for (const char* psymbol=lstring; *psymbol; ++psymbol) {
-
-        lsystem_execute_symbol(lsys, *psymbol, segments,
-                               &cur_state, &xform_stack);
-
-    }
-
-    dynarray_destroy(&xform_stack);
-
-    return segments;
-
-}
-
 
 //////////////////////////////////////////////////////////////////////
 
-double get_time_as_double() {
+void initialize_known_lsystems() {
 
-    struct timespec tp;
+    lsys_create(KNOWN_LSYSTEMS + LSYS_SIERPINSKI_TRIANGLE,
+                   "sierpinski_triangle", "F-G-G",
+                   (lsys_rule_def_t[]){
+                     { 'F', "F-G+F+G-F" },
+                     { 'G', "GG" }, 
+                     { 0, 0 }
+                   }, 120, NULL);
 
-    clock_gettime(CLOCK_REALTIME, &tp);
+    lsys_create(KNOWN_LSYSTEMS + LSYS_SIERPINSKI_ARROWHEAD,
+                   "sierpinski_arrowhead", "A",
+                   (lsys_rule_def_t[]){
+                     { 'A', "B-A-B" }, 
+                     { 'B', "A+B+A" }, 
+                     { 0, 0 }
+                   }, 60, NULL);
+    
+    lsys_create(KNOWN_LSYSTEMS + LSYS_DRAGON_CURVE,
+                   "dragon_curve", "FX",
+                   (lsys_rule_def_t[]){
+                     { 'X', "X+YF+" },
+                     { 'Y', "-FX-Y" },
+                   }, 90, NULL);
+    
+    lsys_create(KNOWN_LSYSTEMS + LSYS_BARNSLEY_FERN,
+                   "barnsley_fern", "X",
+                   (lsys_rule_def_t[]){
+                     { 'X', "F+[[X]-X]-F[-FX]+X" },
+                     { 'F', "FF" },
+                     { 0, 0 }
+                   }, 25, NULL);
 
-    return (double)tp.tv_sec + (double)tp.tv_nsec * 1e-9;
+    lsys_create(KNOWN_LSYSTEMS + LSYS_STICKS,
+                   "sticks", "X",
+                   (lsys_rule_def_t[]){
+                     { 'X', "F[+X]F[-X]+X" },
+                     { 'F', "FF" },
+                     { 0, 0 }
+                   }, 20, "F");
+
+    lsys_create(KNOWN_LSYSTEMS + LSYS_HILBERT,
+                   "hilbert", "L",
+                   (lsys_rule_def_t[]){
+                     { 'L', "+RF-LFL-FR+" },
+                     { 'R', "-LF+RFR+FL-" },
+                     { 0, 0 }
+                   }, 90, "F");
+
+    lsys_create(KNOWN_LSYSTEMS + LSYS_PENTAPLEXITY,
+                   "pentaplexity", "F++F++F++F++F",
+                   (lsys_rule_def_t[]){
+                     { 'F', "F++F++F+++++F-F++F" },
+                     { 0, 0 }
+                   }, 36, NULL);
 
 }
 
@@ -790,11 +826,11 @@ void parse_options(int argc, char** argv, options_t* opts) {
             
         } else if (!strcmp(arg, "-s")) {
             
-            opts->method = METHOD_STRING;
+            opts->method = LSYS_METHOD_STRING;
             
         } else if (!strcmp(arg, "-r")) {
 
-            opts->method = METHOD_RECURSION;
+            opts->method = LSYS_METHOD_RECURSION;
             
         } else if (!strcmp(arg, "-m")) {
             
@@ -864,7 +900,7 @@ void parse_options(int argc, char** argv, options_t* opts) {
 
     }
 
-    if (opts->memo_depth && opts->method == METHOD_STRING) {
+    if (opts->memo_depth && opts->method == LSYS_METHOD_STRING) {
         printf("warning: ignoring memo depth for string method!\n");
         opts->memo_depth = 0;
     }
@@ -890,11 +926,11 @@ void parse_options(int argc, char** argv, options_t* opts) {
         }
         printf("\n");
         printf("options:\n");
-        printf("  -s             use string building method\n"
+        printf("  -x MAXSEGMENTS maximum number of segments for output\n"
+               "  -s             use string building method\n"
                "  -r             use recursive method\n"
                "  -m MEMODEPTH   enable memoization for recursive method\n"
                "  -t SEGMENTS    parallelize memoization for more than SEGMENTS segments\n"
-               "  -x MAXSEGMENTS maximum number of segments for output\n"
                "  -P             don't precompute rotations\n"
                "\n");
         exit(1);
@@ -905,43 +941,48 @@ void parse_options(int argc, char** argv, options_t* opts) {
         opts->lsys->rotation_cycle_length = 0;
     }
 
+    printf("using %s method\n",
+           opts->method == LSYS_METHOD_STRING ? "string" : "recursion");
+
+    if (opts->method == LSYS_METHOD_RECURSION && opts->memo_depth) {
+        printf("memo depth is %d\n", (int)opts->memo_depth);
+    }
+
+    lsys_print(opts->lsys);
+    
 }
 
 //////////////////////////////////////////////////////////////////////
+// main program
 
 int main(int argc, char** argv) {
 
+    // initialize lsystems
     initialize_known_lsystems();
 
+    // parse command-line options
     options_t opts;
-
     parse_options(argc, argv, &opts);
 
-    lsystem_print(opts.lsys);
-
-    printf("using %s method\n",
-           opts.method == METHOD_STRING ? "string" : "recursion");
-
-    if (opts.method == METHOD_RECURSION && opts.memo_depth) {
-        printf("memo depth is %d\n", (int)opts.memo_depth);
-    }
+    ////////////////////////////////////////////////////////////
+    // now get the segments
 
     double start = get_time_as_double();
 
-    dynarray_t* segments;
+    darray_t* segments;
 
-    if (opts.method == METHOD_STRING) {
+    if (opts.method == LSYS_METHOD_STRING) {
 
-        char* lstring = lsystem_build_string(opts.lsys,
+        char* lstring = lsys_build_string(opts.lsys,
                                              opts.max_depth);
 
-        segments = lsystem_segments_from_string(opts.lsys, lstring);
+        segments = lsys_segments_from_string(opts.lsys, lstring);
 
         free(lstring);
 
     } else {
 
-        segments = lsystem_segments_recursive(opts.lsys, opts.max_depth,
+        segments = lsys_segments_recursive(opts.lsys, opts.max_depth,
                                               opts.memo_depth,
                                               opts.min_parallel_segments);
 
@@ -950,6 +991,9 @@ int main(int argc, char** argv) {
     double elapsed = get_time_as_double() - start;
     printf("got %d segments in %.6f sec.\n", (int)segments->count, elapsed);
 
+    ////////////////////////////////////////////////////////////
+    // either output or not
+
     if (segments->count > opts.max_segments) {
         
         printf("...maximum of %d segments exceeded, skipping output!\n",
@@ -957,8 +1001,8 @@ int main(int argc, char** argv) {
 
     } else {
 
-        const lsystem_segment_t* segment = (const lsystem_segment_t*)segments->data;
-        const lsystem_segment_t* end = segment + segments->count;
+        const lsys_segment_t* segment = (const lsys_segment_t*)segments->data;
+        const lsys_segment_t* end = segment + segments->count;
 
         FILE* outfile = fopen("segments.txt", "w");
         
@@ -974,7 +1018,10 @@ int main(int argc, char** argv) {
 
     }
 
-    dynarray_destroy(segments);
+    ////////////////////////////////////////////////////////////
+    // clean up
+
+    darray_destroy(segments);
     free(segments);
 
     return 0;
