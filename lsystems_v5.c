@@ -1,6 +1,6 @@
 //////////////////////////////////////////////////////////////////////
 //
-// lsystems_v4.c
+// lsystems_v5.c
 // Matt Zucker
 //
 //////////////////////////////////////////////////////////////////////
@@ -60,7 +60,26 @@ typedef struct rot2d {
     float c, s;
 } rot2d_t;
 
+// 2D transformation
+typedef struct xform {
+    point2d_t pos;
+    rot2d_t   rot;
+    float     angle;
+} xform_t;
+
+// identity transform
+static const xform_t IDENTITY_XFORM = {
+    { 0.f, 0.f, }, { 1.f, 0.f }, 0.f
+};
+
+// 2D geometry functions
 int positive_mod(int ticks, int divisor);
+point2d_t rotate_point(const rot2d_t R, const point2d_t p);
+rot2d_t rotate_compose(const rot2d_t R2, const rot2d_t R1);
+point2d_t translate_point(const point2d_t p, const point2d_t q);
+xform_t xform_inverse(xform_t xform);
+xform_t xform_compose(xform_t xform2, xform_t xform1);
+point2d_t xform_transform_point(xform_t xform, point2d_t p);
 
 //////////////////////////////////////////////////////////////////////
 // L-System types/functions
@@ -104,13 +123,24 @@ typedef struct lsys_rule_def {
     const char* replacement;
 } lsys_rule_def_t;
 
-typedef struct lsys_state {
-    point2d_t pos;
-    rot2d_t rot;
-    float angle;
-} lsys_state_t;
+// datatype for memoizing a single L-System rule
+typedef struct lsys_memo {
+    
+    size_t segment_start;
+    size_t segment_count;
+    
+    xform_t init_inverse;
+    xform_t delta_xform;
+    
+} lsys_memo_t;
 
-static const lsys_state_t LSYS_START_STATE = { { 0.f, 0.f, }, { 1.f, 0.f }, 0.f };
+// datatype for memoizing an entire L-system
+typedef struct lsys_memo_set {
+
+    size_t memo_depth;
+    lsys_memo_t* memos[LSYS_MAX_RULES];
+
+} lsys_memo_set_t;
 
 void lsys_create(lsys_t* lsys,
                  const char* name,
@@ -127,7 +157,8 @@ darray_t* lsys_segments_from_string(const lsys_t* lsys,
                                     const char* lstring);
 
 darray_t* lsys_segments_recursive(const lsys_t* lsys,
-                                  size_t max_depth);
+                                  size_t max_depth,
+                                  size_t memo_depth);
 
 //////////////////////////////////////////////////////////////////////
 // set up some known L-Systems
@@ -160,6 +191,7 @@ typedef struct options {
     size_t        max_depth;
     size_t        max_segments;
     lsys_method_t method;
+    size_t        memo_depth;
 } options_t;
 
 void parse_options(int argc, char** argv, options_t* opts);
@@ -189,6 +221,65 @@ int positive_mod(int ticks, int divisor) {
 
 }
 
+point2d_t rotate_point(const rot2d_t R, const point2d_t p) {
+
+    return (point2d_t){
+        R.c * p.x - R.s * p.y,
+        R.s * p.x + R.c * p.y
+    };
+
+}
+
+rot2d_t rotate_compose(const rot2d_t R2, const rot2d_t R1) {
+
+    return (rot2d_t) {
+        R2.c * R1.c - R2.s * R1.s,
+        R2.s * R1.c + R2.c * R1.s,
+    };
+
+}
+ 
+point2d_t translate_point(const point2d_t p, const point2d_t q) {
+    
+    return (point2d_t) { p.x + q.x, p.y + q.y };
+
+}
+
+xform_t xform_inverse(xform_t xform) {
+
+    rot2d_t rinv = { xform.rot.c, -xform.rot.s };
+
+    return (xform_t) {
+        .pos = rotate_point(rinv, (point2d_t){ -xform.pos.x, -xform.pos.y }),
+        .rot = rinv,
+        .angle = -xform.angle
+    };
+
+}
+
+xform_t xform_compose(xform_t xform2,
+                      xform_t xform1) {
+
+    return (xform_t) {
+
+        .pos = translate_point(xform2.pos,
+                               rotate_point(xform2.rot, xform1.pos)),
+
+        .rot = rotate_compose(xform2.rot, xform1.rot),
+
+        .angle = xform2.angle + xform1.angle
+
+    };
+    
+}
+
+point2d_t xform_transform_point(xform_t xform,
+                            point2d_t p) {
+
+    return translate_point(rotate_point(xform.rot, p), xform.pos);
+
+}
+ 
 //////////////////////////////////////////////////////////////////////
 
 void darray_create(darray_t* darray, size_t elem_size, size_t capacity) {
@@ -393,15 +484,15 @@ char* lsys_build_string(const lsys_t* lsys, size_t max_depth) {
 void _lsys_execute_symbol(const lsys_t* lsys,
                           const char symbol,
                           darray_t* segments,
-                          lsys_state_t* state,
-                          darray_t* state_stack) {
+                          xform_t* state,
+                          darray_t* xform_stack) {
 
     if (isalpha(symbol)) {
 
         if (lsys->draw_chars[0] && !lsys->draw_chars[(int)symbol]) {
             return;
         }
-
+            
         float xnew = state->pos.x + state->rot.c;
         float ynew = state->pos.y + state->rot.s;
 
@@ -443,11 +534,11 @@ void _lsys_execute_symbol(const lsys_t* lsys,
 
     } else if (symbol == '[') {
 
-        darray_push_back(state_stack, state);
+        darray_push_back(xform_stack, state);
 
     } else if (symbol == ']') {
 
-        darray_pop_back(state_stack, state);
+        darray_pop_back(xform_stack, state);
 
     } else {
 
@@ -466,20 +557,20 @@ darray_t* lsys_segments_from_string(const lsys_t* lsys,
     darray_create(segments, sizeof(lsys_segment_t),
                     LSYS_INIT_SEGMENTS_CAPACITY);
 
-    darray_t state_stack;
-    darray_create(&state_stack, sizeof(lsys_state_t),
-                  LSYS_INIT_STATES_CAPACITY);
+    darray_t xform_stack;
+    darray_create(&xform_stack, sizeof(xform_t),
+                    LSYS_INIT_STATES_CAPACITY);
 
-    lsys_state_t cur_state = LSYS_START_STATE;
+    xform_t cur_state = IDENTITY_XFORM;
 
     for (const char* psymbol=lstring; *psymbol; ++psymbol) {
 
         _lsys_execute_symbol(lsys, *psymbol, segments,
-                             &cur_state, &state_stack);
+                             &cur_state, &xform_stack);
 
     }
 
-    darray_destroy(&state_stack);
+    darray_destroy(&xform_stack);
 
     return segments;
 
@@ -489,9 +580,9 @@ void _lsys_segments_r(const lsys_t* lsys,
                       const char* lstring, 
                       size_t max_depth,
                       darray_t* segments,
-                      lsys_state_t* cur_state,
-                      darray_t* state_stack) {
-
+                      xform_t* cur_state,
+                      darray_t* xform_stack,
+                      lsys_memo_set_t* mset) {
 
     for (const char* psymbol=lstring; *psymbol; ++psymbol) {
 
@@ -501,14 +592,73 @@ void _lsys_segments_r(const lsys_t* lsys,
 
         if (max_depth && rule->replacement) {
 
+            lsys_memo_t* active_memo = 0;
+
+            if (mset && max_depth == mset->memo_depth) {
+
+                lsys_memo_t* memo = mset->memos[symbol];
+
+                if (memo) {
+
+                    // cur_state * init_inverse
+                    xform_t update_xform =
+                        xform_compose(*cur_state, memo->init_inverse);
+
+                    size_t init_count = segments->count;
+                    darray_resize(segments, init_count + memo->segment_count);
+
+                    const lsys_segment_t* src =
+                        darray_const_elem_ptr(segments, memo->segment_start);
+
+                    lsys_segment_t* dst =
+                        darray_elem_ptr(segments, init_count);
+
+                    for (size_t i=0; i<memo->segment_count; ++i) {
+                        lsys_segment_t newsrc = {
+                            xform_transform_point(update_xform, src[i].p0),
+                            xform_transform_point(update_xform, src[i].p1)
+                        };
+                        dst[i] = newsrc;
+                    }
+                    
+                    *cur_state = xform_compose(*cur_state, memo->delta_xform);
+
+                    continue;
+
+                } else {
+                    
+                    active_memo = malloc(sizeof(lsys_memo_t));
+                    
+                    active_memo->segment_start = segments->count;
+                    active_memo->segment_count = segments->count;
+                    active_memo->init_inverse = xform_inverse(*cur_state);
+                    
+                    mset->memos[symbol] = active_memo;
+
+                }
+
+            }
+
             _lsys_segments_r(lsys, rule->replacement,
                              max_depth-1,
-                             segments, cur_state, state_stack);
+                             segments, cur_state, xform_stack,
+                             mset);
+
+            if (active_memo) {
+                
+                active_memo->segment_count =
+                    segments->count - active_memo->segment_start;
+                
+                active_memo->delta_xform =
+                    xform_compose(active_memo->init_inverse,
+                                  *cur_state);
+
+            }
 
         } else {
 
             _lsys_execute_symbol(lsys, *psymbol, segments,
-                                 cur_state, state_stack);
+                                 cur_state, xform_stack);
 
         }
         
@@ -517,24 +667,37 @@ void _lsys_segments_r(const lsys_t* lsys,
 }
 
 darray_t* lsys_segments_recursive(const lsys_t* lsys,
-                                  size_t max_depth) {
+                                  size_t max_depth,
+                                  size_t memo_depth) {
 
     darray_t* segments = malloc(sizeof(darray_t));
     
     darray_create(segments, sizeof(lsys_segment_t),
                     LSYS_INIT_SEGMENTS_CAPACITY);
 
-    darray_t state_stack;
-    darray_create(&state_stack, sizeof(lsys_state_t),
-                  LSYS_INIT_STATES_CAPACITY);
+    darray_t xform_stack;
+    darray_create(&xform_stack, sizeof(xform_t),
+                    LSYS_INIT_STATES_CAPACITY);
 
-    lsys_state_t cur_state = LSYS_START_STATE;
+    xform_t cur_state = IDENTITY_XFORM;
+
+    lsys_memo_set_t mset;
+    memset(&mset, 0, sizeof(mset));
+
+    mset.memo_depth = memo_depth;
 
     _lsys_segments_r(lsys, lsys->start, 
                      max_depth, segments,
-                     &cur_state, &state_stack);
+                     &cur_state, &xform_stack,
+                     memo_depth ? &mset : NULL);
 
-    darray_destroy(&state_stack);
+    for (int i=0; i<LSYS_MAX_RULES; ++i) {
+        if (mset.memos[i]) {
+            free(mset.memos[i]);
+        }
+    }
+
+    darray_destroy(&xform_stack);
 
     return segments;
 
@@ -663,6 +826,23 @@ void parse_options(int argc, char** argv, options_t* opts) {
 
             opts->method = LSYS_METHOD_RECURSION;
             
+        } else if (!strcmp(arg, "-m")) {
+            
+            if (++i == argc) { ok = 0; break; }
+            
+            int d;
+            
+            if (sscanf(argv[i], "%d", &d) != 1) {
+                ok = 0; break;
+            }
+            
+            if (d >= 0) {
+                opts->memo_depth = d;
+            } else {
+                ok = 0;
+                break;
+            }
+
         } else if (!strcmp(arg, "-x")) {
             
             if (++i == argc) { ok = 0; break; }
@@ -695,6 +875,11 @@ void parse_options(int argc, char** argv, options_t* opts) {
 
     }
 
+    if (opts->memo_depth && opts->method == LSYS_METHOD_STRING) {
+        printf("warning: ignoring memo depth for string method!\n");
+        opts->memo_depth = 0;
+    }
+
     if (!ok || !opts->lsys || !opts->max_depth) {
         printf("usage: %s [options] LSYSTEM MAXDEPTH\n"
                "\n"
@@ -707,6 +892,7 @@ void parse_options(int argc, char** argv, options_t* opts) {
         printf("  -x MAXSEGMENTS maximum number of segments for output\n"
                "  -s             use string building method (default)\n"
                "  -r             use recursive method\n"
+               "  -m MEMODEPTH   enable memoization for recursive method\n"
                "  -P             don't precompute rotations\n"
                "\n");
         exit(1);
@@ -719,6 +905,10 @@ void parse_options(int argc, char** argv, options_t* opts) {
 
     printf("using %s method\n",
            opts->method == LSYS_METHOD_STRING ? "string" : "recursion");
+
+    if (opts->method == LSYS_METHOD_RECURSION && opts->memo_depth) {
+        printf("memo depth is %d\n", (int)opts->memo_depth);
+    }
 
     lsys_print(opts->lsys);
     
@@ -754,7 +944,9 @@ int main(int argc, char** argv) {
 
     } else {
 
-        segments = lsys_segments_recursive(opts.lsys, opts.max_depth);
+        segments = lsys_segments_recursive(opts.lsys, opts.max_depth,
+                                           opts.memo_depth);
+
 
     }
 

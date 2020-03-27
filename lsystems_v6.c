@@ -941,7 +941,9 @@ void parse_options(int argc, char** argv, options_t* opts) {
                "  -s             use string building method (default)\n"
                "  -r             use recursive method\n"
                "  -m MEMODEPTH   enable memoization for recursive method\n"
+#ifdef _OPENMP               
                "  -t SEGMENTS    parallelize memoization for more than SEGMENTS segments\n"
+#endif               
                "  -P             don't precompute rotations\n"
                "\n");
         exit(1);
@@ -994,8 +996,8 @@ int main(int argc, char** argv) {
     } else {
 
         segments = lsys_segments_recursive(opts.lsys, opts.max_depth,
-                                              opts.memo_depth,
-                                              opts.min_parallel_segments);
+                                           opts.memo_depth,
+                                           opts.min_parallel_segments);
 
     }
 
