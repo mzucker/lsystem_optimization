@@ -4,12 +4,20 @@
 #include <ctype.h>
 #include <math.h>
 #include <time.h>
+#include <unistd.h>
+
+#include <assert.h>
+#ifdef NDEBUG
+#undef NDEBUG
+#endif
 
 #ifdef _OPENMP
 #include <omp.h>
 #endif
 
-typedef struct buffer {
+#include <pthread.h>
+
+typedef struct dynarray {
 
     size_t elem_size;
     size_t capacity;
@@ -17,7 +25,41 @@ typedef struct buffer {
     
     unsigned char* data;
 
-} buffer_t;
+} dynarray_t;
+
+//////////////////////////////////////////////////////////////////////
+
+#ifndef _OPENMP
+
+typedef void (thread_pool_func_t)(void*);
+
+typedef struct thread_pool_task {
+
+    thread_pool_func_t* func;
+    void* data;
+    
+} thread_pool_task_t;
+
+enum {
+    INIT_TASKS_CAPACITY = 16
+};
+
+typedef struct thread_pool {
+
+    size_t thread_count;
+    pthread_t* threads;
+
+    dynarray_t tasks;
+    size_t next_task_idx;
+    size_t finished_count;
+
+    pthread_mutex_t lock;
+    pthread_cond_t start_cond;
+    pthread_cond_t end_cond;
+
+} thread_pool_t;
+
+#endif
 
 //////////////////////////////////////////////////////////////////////
 
@@ -91,6 +133,11 @@ typedef struct lsystem_memo_set {
 
     size_t memo_depth;
     size_t min_parallel_segments;
+
+#ifndef _OPENMP    
+    size_t num_tasks;
+    thread_pool_t pool;
+#endif
     
     lsystem_memo_t* memos[MAX_RULES];
 
@@ -210,66 +257,239 @@ void xform_print(const char* name, xform_t xform) {
 
 //////////////////////////////////////////////////////////////////////
 
-void buffer_create(buffer_t* buffer, size_t elem_size, size_t capacity) {
+void dynarray_create(dynarray_t* dynarray, size_t elem_size, size_t capacity) {
     
     size_t alloc_size = elem_size * capacity;
     
-    buffer->elem_size = elem_size;
-    buffer->count = 0;
-    buffer->capacity = capacity;
-    buffer->data = malloc(alloc_size);
+    dynarray->elem_size = elem_size;
+    dynarray->count = 0;
+    dynarray->capacity = capacity;
+    dynarray->data = malloc(alloc_size);
     
 }
 
-void buffer_resize(buffer_t* buffer, size_t new_count) {
+void dynarray_resize(dynarray_t* dynarray, size_t new_count) {
 
-    if (new_count > buffer->capacity) {
+    if (new_count > dynarray->capacity) {
         
-        size_t new_capacity = buffer->capacity;
+        size_t new_capacity = dynarray->capacity;
         
         while (new_capacity <= new_count) {
             new_capacity *= 2;
         }
 
-        size_t alloc_size = buffer->elem_size * new_capacity;
+        size_t alloc_size = dynarray->elem_size * new_capacity;
 
-        buffer->data = realloc(buffer->data, alloc_size);
-        buffer->capacity = new_capacity;
+        dynarray->data = realloc(dynarray->data, alloc_size);
+        dynarray->capacity = new_capacity;
         
     }
 
-    buffer->count = new_count;
+    dynarray->count = new_count;
         
 }
 
-void buffer_extend(buffer_t* buffer, const void* elements, size_t count) {
+void dynarray_extend(dynarray_t* dynarray, const void* elements, size_t count) {
 
-    size_t offset = buffer->elem_size * buffer->count;
+    size_t offset = dynarray->elem_size * dynarray->count;
 
-    buffer_resize(buffer, buffer->count + count);
+    dynarray_resize(dynarray, dynarray->count + count);
 
-    memcpy(buffer->data + offset, elements, count*buffer->elem_size);
+    memcpy(dynarray->data + offset, elements, count*dynarray->elem_size);
 
 }
 
-const void* buffer_read(const buffer_t* buffer, size_t idx) {
-    return buffer->data + idx*buffer->elem_size;
+void* dynarray_elem_ptr(dynarray_t* dynarray, size_t idx) {
+    return dynarray->data + idx*dynarray->elem_size;
+}
+
+const void* dynarray_const_elem_ptr(const dynarray_t* dynarray, size_t idx) {
+    return dynarray->data + idx*dynarray->elem_size;
+}
+
+void dynarray_get(const dynarray_t* dynarray, size_t idx, void* dst) {
+    memcpy(dst, dynarray_const_elem_ptr(dynarray, idx), dynarray->elem_size);
+}
+
+void dynarray_set(dynarray_t* dynarray, size_t idx, const void* src) {
+    memcpy(dynarray_elem_ptr(dynarray, idx), src, dynarray->elem_size);
 }
  
-void buffer_append(buffer_t* buffer, const void* elem) {
-    buffer_extend(buffer, elem, 1);
+void dynarray_append(dynarray_t* dynarray, const void* elem) {
+    dynarray_extend(dynarray, elem, 1);
 }
 
-void buffer_pop(buffer_t* buffer, void* dst) {
-    buffer->count -= 1;
-    size_t offset = buffer->count * buffer->elem_size;
-    memcpy(dst, (const void*)buffer->data + offset, buffer->elem_size);
+void dynarray_pop(dynarray_t* dynarray, void* dst) {
+    dynarray->count -= 1;
+    size_t offset = dynarray->count * dynarray->elem_size;
+    memcpy(dst, (const void*)dynarray->data + offset, dynarray->elem_size);
 }
 
-void buffer_destroy(buffer_t* buffer) {
-    free(buffer->data);
-    memset(buffer, 0, sizeof(buffer_t));
+void dynarray_clear(dynarray_t* dynarray) {
+    dynarray->count = 0;
 }
+
+void dynarray_destroy(dynarray_t* dynarray) {
+    free(dynarray->data);
+    memset(dynarray, 0, sizeof(dynarray_t));
+}
+
+
+//////////////////////////////////////////////////////////////////////
+
+#ifndef _OPENMP
+
+void* thread_pool_start(void* p) {
+    
+    thread_pool_t* pool = p;
+
+    while (1) {
+
+        pthread_mutex_lock(&pool->lock);
+
+        while (pool->next_task_idx == pool->tasks.count) {
+            ++pool->finished_count;
+            pthread_cond_broadcast(&pool->end_cond);
+            //printf("finished! count is now %d\n", (int)pool->finished_count);
+            pthread_cond_wait(&pool->start_cond, &pool->lock);
+        }
+
+        thread_pool_task_t task;
+        dynarray_get(&pool->tasks, pool->next_task_idx, &task);
+        ++pool->next_task_idx;
+
+        //printf("got task %d/%d with func %p\n",
+        //(int)pool->next_task_idx, (int)pool->tasks.count, task.func);
+
+        pthread_mutex_unlock(&pool->lock);
+        //pthread_yield_np();
+
+        if (!task.func) {
+            return 0;
+        }
+
+        task.func(task.data);
+
+    }
+
+    return 0;
+
+}
+
+void thread_pool_create(thread_pool_t* pool, size_t nthreads) {
+
+    memset(pool, 0, sizeof(thread_pool_t));
+
+    dynarray_create(&pool->tasks, sizeof(thread_pool_task_t), INIT_TASKS_CAPACITY);
+
+    if (nthreads == 1) { return; }
+    
+    const pthread_mutexattr_t* m_attr = NULL;
+    pthread_mutex_init(&pool->lock, m_attr);
+
+    const pthread_condattr_t* c_attr = NULL;
+    pthread_cond_init(&pool->start_cond, c_attr);
+    pthread_cond_init(&pool->end_cond, c_attr);
+
+    pool->thread_count = nthreads;
+    pool->threads = (pthread_t*) malloc(nthreads * sizeof(pthread_t));
+
+    pthread_mutex_lock(&pool->lock);
+
+    for (size_t i=0; i<nthreads; ++i) {
+        const pthread_attr_t* t_attr = NULL;
+        pthread_create(pool->threads + i, t_attr, thread_pool_start, pool);
+    }
+
+    //printf("waiting for threads to start up...\n");
+
+    while (pool->finished_count < nthreads) {
+        pthread_cond_wait(&pool->end_cond, &pool->lock);
+    }
+
+    pool->finished_count = 0;
+
+    //printf("all threads started!\n");
+    pthread_mutex_unlock(&pool->lock);
+
+}
+
+void thread_pool_add_task(thread_pool_t* pool, thread_pool_func_t* func, void* data) {
+
+    //printf("added a task with func %p\n", func);
+    
+    thread_pool_task_t task = { func, data };
+    dynarray_append(&pool->tasks, &task);
+    
+}
+
+
+void thread_pool_run_in_main_thread(thread_pool_t* pool) {
+
+    for (size_t i=0; i<pool->tasks.count; ++i) {
+        thread_pool_task_t task;
+        dynarray_get(&pool->tasks, i, &task);
+        task.func(task.data);
+    }
+
+    dynarray_clear(&pool->tasks);
+
+}
+
+void thread_pool_run(thread_pool_t* pool) {
+
+    if (!pool->thread_count) {
+        
+        thread_pool_run_in_main_thread(pool);
+        
+    } else {
+
+        pool->finished_count = 0;
+        pool->next_task_idx = 0;
+        
+        pthread_mutex_lock(&pool->lock);
+        pthread_cond_broadcast(&pool->start_cond);
+
+        while (pool->finished_count < pool->thread_count) {
+            pthread_cond_wait(&pool->end_cond, &pool->lock);
+        }
+
+        pthread_mutex_unlock(&pool->lock);
+        pool->next_task_idx = 0;
+        dynarray_clear(&pool->tasks);
+
+    }
+    
+}
+
+void thread_pool_destroy(thread_pool_t* pool) {
+
+    if (pool->thread_count) {
+        
+        for (size_t i=0; i<pool->thread_count; ++i) {
+            thread_pool_add_task(pool, NULL, NULL);
+        }
+
+        pthread_cond_broadcast(&pool->start_cond);
+        
+        for (size_t i=0; i<pool->thread_count; ++i) {
+            pthread_join(pool->threads[i], NULL);
+        }
+        
+        free(pool->threads);
+
+        pthread_mutex_destroy(&pool->lock);
+        pthread_cond_destroy(&pool->start_cond);
+        pthread_cond_destroy(&pool->end_cond);
+        
+    }
+
+    dynarray_destroy(&pool->tasks);
+    
+    
+}
+
+#endif
 
 //////////////////////////////////////////////////////////////////////
 
@@ -398,15 +618,15 @@ void lsystem_print(const lsystem_t* lsys) {
 char* lsystem_build_string(const lsystem_t* lsys,
                            size_t max_depth) {
     
-    buffer_t string_buffers[2];
+    dynarray_t string_dynarrays[2];
     
     for (int i=0; i<2; ++i) {
-        buffer_create(string_buffers + i, sizeof(char), INIT_STRING_CAPACITY);
+        dynarray_create(string_dynarrays + i, sizeof(char), INIT_STRING_CAPACITY);
     }
 
     int cur_idx = 0;
     
-    buffer_extend(string_buffers + cur_idx,
+    dynarray_extend(string_dynarrays + cur_idx,
                   lsys->start,
                   strlen(lsys->start));
 
@@ -414,13 +634,13 @@ char* lsystem_build_string(const lsystem_t* lsys,
 
         int next_idx = 1 - cur_idx;
 
-        buffer_t* src_buffer = string_buffers + cur_idx;
-        buffer_t* dst_buffer = string_buffers + next_idx;
+        dynarray_t* src_dynarray = string_dynarrays + cur_idx;
+        dynarray_t* dst_dynarray = string_dynarrays + next_idx;
 
-        buffer_resize(dst_buffer, 0);
+        dynarray_resize(dst_dynarray, 0);
         
-        const char* start = (const char*)src_buffer->data;
-        const char* end = start + src_buffer->count;
+        const char* start = (const char*)src_dynarray->data;
+        const char* end = start + src_dynarray->count;
 
         for (const char* c=start; c!=end; ++c) {
 
@@ -428,13 +648,13 @@ char* lsystem_build_string(const lsystem_t* lsys,
             
             if (rule->replacement) {
                 
-                buffer_extend(dst_buffer,
+                dynarray_extend(dst_dynarray,
                               rule->replacement,
                               rule->length);
 
             } else {
 
-                buffer_append(dst_buffer, c);
+                dynarray_append(dst_dynarray, c);
 
             }
 
@@ -445,19 +665,19 @@ char* lsystem_build_string(const lsystem_t* lsys,
     }
 
     const char nul = '\0';
-    buffer_append(string_buffers + cur_idx, &nul);
+    dynarray_append(string_dynarrays + cur_idx, &nul);
 
-    buffer_destroy(string_buffers + (1 - cur_idx));
+    dynarray_destroy(string_dynarrays + (1 - cur_idx));
 
-    return (char*)string_buffers[cur_idx].data;
+    return (char*)string_dynarrays[cur_idx].data;
 
 }
 
 void lsystem_execute_symbol(const lsystem_t* lsys,
                             const char symbol,
-                            buffer_t* segments,
+                            dynarray_t* segments,
                             xform_t* state,
-                            buffer_t* xform_stack) {
+                            dynarray_t* xform_stack) {
 
     if (isalpha(symbol)) {
 
@@ -471,7 +691,7 @@ void lsystem_execute_symbol(const lsystem_t* lsys,
         lsystem_segment_t seg = { { state->pos.x, state->pos.y},
                                   { xnew, ynew } };
 
-        buffer_append(segments, &seg);
+        dynarray_append(segments, &seg);
 
         state->pos.x = xnew;
         state->pos.y = ynew;
@@ -506,11 +726,11 @@ void lsystem_execute_symbol(const lsystem_t* lsys,
 
     } else if (symbol == '[') {
 
-        buffer_append(xform_stack, state);
+        dynarray_append(xform_stack, state);
 
     } else if (symbol == ']') {
 
-        buffer_pop(xform_stack, state);
+        dynarray_pop(xform_stack, state);
 
     } else {
 
@@ -521,12 +741,43 @@ void lsystem_execute_symbol(const lsystem_t* lsys,
 
 }
 
+typedef struct segment_xform_data {
+    
+    lsystem_segment_t* dst;
+    const lsystem_segment_t* src;
+    size_t count;
+    const xform_t* update_xform;
+       
+} segment_xform_data_t;
+
+void lsystem_transform_segments(void* ptr) {
+
+    const segment_xform_data_t* sdata = ptr;
+
+    lsystem_segment_t* dst = sdata->dst;
+    const lsystem_segment_t* src = sdata->src;
+                    
+    for (size_t i=0; i<sdata->count; ++i) {
+
+        lsystem_segment_t newsrc = {
+            xform_transform_point(*sdata->update_xform, src->p0),
+            xform_transform_point(*sdata->update_xform, src->p1)
+        };
+
+        *dst++ = newsrc;
+        src++;
+
+    }
+
+}
+
+
 void lsystem_segments_r(const lsystem_t* lsys,
                         const char* lstring, 
                         size_t max_depth,
-                        buffer_t* segments,
+                        dynarray_t* segments,
                         xform_t* cur_state,
-                        buffer_t* xform_stack,
+                        dynarray_t* xform_stack,
                         lsystem_memo_set_t* mset) {
 
     for (const char* psymbol=lstring; *psymbol; ++psymbol) {
@@ -548,33 +799,76 @@ void lsystem_segments_r(const lsystem_t* lsys,
                         xform_compose(*cur_state, memo->init_inverse);
 
                     size_t init_count = segments->count;
-                    buffer_resize(segments, init_count + memo->segment_count);
-
-                    const lsystem_segment_t* seg =
-                        buffer_read(segments, memo->segment_start);
-
-                    lsystem_segment_t* dst =
-                        (lsystem_segment_t*)(segments->data +
-                                             init_count * segments->elem_size);
+                    dynarray_resize(segments, init_count + memo->segment_count);
 
                     int do_parallelize =
                         (memo->segment_count >= mset->min_parallel_segments);
                     
+                    const lsystem_segment_t* src =
+                        dynarray_const_elem_ptr(segments, memo->segment_start);
+
+                    lsystem_segment_t* dst =
+                        dynarray_elem_ptr(segments, init_count);
+
+#ifdef _OPENMP
+
                     #pragma omp parallel for if (do_parallelize)
                     for (size_t i=0; i<memo->segment_count; ++i) {
+                        lsystem_segment_t newsrc = {
+                            xform_transform_point(update_xform, src[i].p0),
+                            xform_transform_point(update_xform, src[i].p1)
+                        };
+                        dst[i] = newsrc;
+                    }
+                    
+#else
+                    
+                    if (do_parallelize) {
+                        
+                        size_t batch_size =
+                            (int)ceil((double)memo->segment_count / mset->num_tasks);
 
-                        lsystem_segment_t newseg = {
-                            xform_transform_point(update_xform, seg->p0),
-                            xform_transform_point(update_xform, seg->p1)
+                        segment_xform_data_t sdata[mset->num_tasks];
+
+                        size_t start_idx = 0;
+
+                        for (size_t i=0; i<mset->num_tasks; ++i) {
+
+                            size_t end_idx = start_idx + batch_size;
+                            
+                            if (end_idx > memo->segment_count) {
+                                end_idx = memo->segment_count;
+                            }
+                            
+                            segment_xform_data_t* si = sdata + i;
+                            
+                            si->dst = dst + start_idx;
+                            si->src = src + start_idx;
+                            si->count = end_idx - start_idx;
+                            si->update_xform = &update_xform;
+
+                            start_idx = end_idx;
+
+                            thread_pool_add_task(&mset->pool,
+                                                 lsystem_transform_segments,
+                                                 si);
+
+                        }
+
+                        thread_pool_run(&mset->pool);
+                        
+                    } else {
+
+                        segment_xform_data_t sdata = {
+                            dst, src, memo->segment_count, &update_xform
                         };
 
-                        *dst++ = newseg;
-                        seg++;
+                        lsystem_transform_segments(&sdata);
 
                     }
 
-                    *cur_state = xform_compose(*cur_state,
-                                               memo->delta_xform);
+#endif                        
+                    *cur_state = xform_compose(*cur_state, memo->delta_xform);
 
                     continue;
 
@@ -619,17 +913,17 @@ void lsystem_segments_r(const lsystem_t* lsys,
 
 }
 
-buffer_t* lsystem_segments_recursive(const lsystem_t* lsys,
-                                     size_t max_depth,
-                                     size_t memo_depth,
-                                     size_t min_parallel_segments) {
+dynarray_t* lsystem_segments_recursive(const lsystem_t* lsys,
+                                       size_t max_depth,
+                                       size_t memo_depth,
+                                       size_t min_parallel_segments) {
 
-    buffer_t* segments = malloc(sizeof(buffer_t));
+    dynarray_t* segments = malloc(sizeof(dynarray_t));
     
-    buffer_create(segments, sizeof(lsystem_segment_t), INIT_SEGMENTS_CAPACITY);
+    dynarray_create(segments, sizeof(lsystem_segment_t), INIT_SEGMENTS_CAPACITY);
 
-    buffer_t xform_stack;
-    buffer_create(&xform_stack, sizeof(xform_t), INIT_STATES_CAPACITY);
+    dynarray_t xform_stack;
+    dynarray_create(&xform_stack, sizeof(xform_t), INIT_STATES_CAPACITY);
 
     xform_t cur_state = IDENTITY_XFORM;
 
@@ -638,6 +932,17 @@ buffer_t* lsystem_segments_recursive(const lsystem_t* lsys,
 
     mset.memo_depth = memo_depth;
     mset.min_parallel_segments = min_parallel_segments;
+
+
+    if (min_parallel_segments != (size_t)-1) {
+#ifndef _OPENMP    
+        mset.num_tasks = sysconf(_SC_NPROCESSORS_ONLN);
+        thread_pool_create(&mset.pool, mset.num_tasks);
+        printf("created a thread pool with %d threads!\n", (int)mset.num_tasks);
+#else
+        printf("will parallelize with OpenMP!\n");
+#endif
+    }
 
     lsystem_segments_r(lsys, lsys->start, 
                        max_depth, segments,
@@ -650,21 +955,25 @@ buffer_t* lsystem_segments_recursive(const lsystem_t* lsys,
         }
     }
 
-    buffer_destroy(&xform_stack);
+#ifndef _OPENMP    
+    thread_pool_destroy(&mset.pool);
+#endif    
+
+    dynarray_destroy(&xform_stack);
 
     return segments;
 
 }
 
-buffer_t* lsystem_segments_from_string(const lsystem_t* lsys,
+dynarray_t* lsystem_segments_from_string(const lsystem_t* lsys,
                                        const char* lstring) {
 
-    buffer_t* segments = malloc(sizeof(buffer_t));
+    dynarray_t* segments = malloc(sizeof(dynarray_t));
 
-    buffer_create(segments, sizeof(lsystem_segment_t), INIT_SEGMENTS_CAPACITY);
+    dynarray_create(segments, sizeof(lsystem_segment_t), INIT_SEGMENTS_CAPACITY);
 
-    buffer_t xform_stack;
-    buffer_create(&xform_stack, sizeof(xform_t), INIT_STATES_CAPACITY);
+    dynarray_t xform_stack;
+    dynarray_create(&xform_stack, sizeof(xform_t), INIT_STATES_CAPACITY);
 
     xform_t cur_state = IDENTITY_XFORM;
 
@@ -675,7 +984,7 @@ buffer_t* lsystem_segments_from_string(const lsystem_t* lsys,
 
     }
 
-    buffer_destroy(&xform_stack);
+    dynarray_destroy(&xform_stack);
 
     return segments;
 
@@ -791,7 +1100,6 @@ void parse_options(int argc, char** argv, options_t* opts) {
                 break;
             }
 
-#ifdef _OPENMP            
         } else if (!strcmp(arg, "-t")) {
             
             if (++i == argc) { ok = 0; break; }
@@ -808,7 +1116,6 @@ void parse_options(int argc, char** argv, options_t* opts) {
                 ok = 0;
                 break;
             }
-#endif            
             
         } else if (!strcmp(arg, "-P")) {
             
@@ -889,7 +1196,7 @@ int main(int argc, char** argv) {
 
     double start = get_time_as_double();
 
-    buffer_t* segments;
+    dynarray_t* segments;
 
     if (opts.method == METHOD_STRING) {
 
@@ -935,7 +1242,7 @@ int main(int argc, char** argv) {
 
     }
 
-    buffer_destroy(segments);
+    dynarray_destroy(segments);
     free(segments);
 
     return 0;
