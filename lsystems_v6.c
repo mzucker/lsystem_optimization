@@ -927,12 +927,12 @@ void parse_options(int argc, char** argv, options_t* opts) {
             printf("memoization is disabled\n");
         } 
     } else if (disable_parallelization) {
-        opts->memo_depth = 4;
+        opts->memo_depth = ( (opts->max_depth - 1 < 4) ? opts->max_depth - 1 : 4 );
         opts->min_parallel_segments = (size_t)-1;
         printf("memoizing to depth %d without parallelization\n",
                (int)opts->memo_depth);
     } else {
-        opts->memo_depth = 10;
+        opts->memo_depth = ( (opts->max_depth - 2 < 10) ? opts->max_depth - 2 : 10 );
         opts->min_parallel_segments = 1024;
         printf("memoizing to depth %d and parallelizing when > %d segments\n",
                (int)opts->memo_depth, (int)opts->min_parallel_segments);

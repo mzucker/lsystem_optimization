@@ -898,7 +898,7 @@ void parse_options(int argc, char** argv, options_t* opts) {
             printf("memoization is disabled\n");
         } 
     } else {
-        opts->memo_depth = 4;
+        opts->memo_depth = ( (opts->max_depth - 1 < 4) ? opts->max_depth - 1 : 4 );
         printf("memoizing to depth %d\n", (int)opts->memo_depth);
     }
 
