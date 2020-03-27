@@ -287,8 +287,8 @@ def main():
     # print elapsed time
     elapsed = (datetime.now() - start).total_seconds()
 
-    print('generated {} segments in {:.6f} seconds'.format(
-        len(segments), elapsed))
+    print('generated {} segments in {:.6f} s ({:.3f} us/segment)'.format(
+        len(segments), elapsed, 1e6 * elapsed/len(segments)))
 
     if opts.max_segments >= 0 and len(segments) > opts.max_segments:
         print('...maximum of {} segments exceeded, skipping output!'.format(

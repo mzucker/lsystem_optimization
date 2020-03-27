@@ -1001,7 +1001,8 @@ int main(int argc, char** argv) {
     }
 
     double elapsed = get_time_as_double() - start;
-    printf("got %d segments in %.6f sec.\n", (int)segments->count, elapsed);
+    printf("generated %d segments in %.6f s (%.3f ns/segment).\n",
+           (int)segments->count, elapsed, 1e9 * elapsed/segments->count);
 
     ////////////////////////////////////////////////////////////
     // either output or not
