@@ -1,11 +1,8 @@
 *~
-lsystems_v2
-lsystems_v3
-lsystems_v4
-lsystems_v5
-lsystems_v6
-lsystems_debug_*
+lsystems_v?
+lsystems_debug_v?
 segment_plot.png
 segments.txt
+benchmark_results.*
 __pycache__
 *.dSYM
