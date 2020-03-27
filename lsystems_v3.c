@@ -656,7 +656,7 @@ void parse_options(int argc, char** argv, options_t* opts) {
                "\n");
         exit(1);
     }
-    
+
     printf("using %s method\n",
            opts->method == LSYS_METHOD_STRING ? "string" : "recursion");
 
