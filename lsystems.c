@@ -4,18 +4,6 @@
 #include <ctype.h>
 #include <math.h>
 #include <time.h>
-#include <unistd.h>
-
-#include <assert.h>
-#ifdef NDEBUG
-#undef NDEBUG
-#endif
-
-#ifdef _OPENMP
-#include <omp.h>
-#endif
-
-#include <pthread.h>
 
 typedef struct dynarray {
 
@@ -605,15 +593,17 @@ void lsystem_segments_r(const lsystem_t* lsys,
                     size_t init_count = segments->count;
                     dynarray_resize(segments, init_count + memo->segment_count);
 
-                    int do_parallelize =
-                        (memo->segment_count >= mset->min_parallel_segments);
-                    
                     const lsystem_segment_t* src =
                         dynarray_const_elem_ptr(segments, memo->segment_start);
 
                     lsystem_segment_t* dst =
                         dynarray_elem_ptr(segments, init_count);
 
+#ifdef _OPENMP                    
+                    int do_parallelize =
+                        (memo->segment_count >= mset->min_parallel_segments);
+#endif                    
+                    
                     #pragma omp parallel for if (do_parallelize)
                     for (size_t i=0; i<memo->segment_count; ++i) {
                         lsystem_segment_t newsrc = {
