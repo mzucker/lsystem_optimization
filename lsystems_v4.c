@@ -707,6 +707,7 @@ void parse_options(int argc, char** argv, options_t* opts) {
         printf("  -x MAXSEGMENTS maximum number of segments for output\n"
                "  -s             use string building method (default)\n"
                "  -r             use recursive method\n"
+               "  -P             don't precompute rotations\n"
                "\n");
         exit(1);
     }
