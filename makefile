@@ -1,4 +1,4 @@
-CC = clang-mp-9.0
+CC = gcc-mp-8
 CFLAGS = -Wall -g -O3 -lm -std=c99 -fopenmp
 
 #CC = cc
