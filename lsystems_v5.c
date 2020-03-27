@@ -906,7 +906,7 @@ void parse_options(int argc, char** argv, options_t* opts) {
             printf("memoization is disabled\n");
         } 
     } else {
-        opts->min_memo_segments = 10000;
+        opts->min_memo_segments = 1000;
         printf("memoizing runs with > %d segments\n",
                (int)opts->min_memo_segments);
     }
