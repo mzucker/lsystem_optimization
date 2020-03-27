@@ -29,40 +29,6 @@ typedef struct dynarray {
 
 //////////////////////////////////////////////////////////////////////
 
-#ifndef _OPENMP
-
-typedef void (thread_pool_func_t)(void*);
-
-typedef struct thread_pool_task {
-
-    thread_pool_func_t* func;
-    void* data;
-    
-} thread_pool_task_t;
-
-enum {
-    INIT_TASKS_CAPACITY = 16
-};
-
-typedef struct thread_pool {
-
-    size_t thread_count;
-    pthread_t* threads;
-
-    dynarray_t tasks;
-    size_t next_task_idx;
-    size_t finished_count;
-
-    pthread_mutex_t lock;
-    pthread_cond_t start_cond;
-    pthread_cond_t end_cond;
-
-} thread_pool_t;
-
-#endif
-
-//////////////////////////////////////////////////////////////////////
-
 enum {
     MAX_RULES = 128,
     MAX_CYCLE_LENGTH = 256,
@@ -133,11 +99,6 @@ typedef struct lsystem_memo_set {
 
     size_t memo_depth;
     size_t min_parallel_segments;
-
-#ifndef _OPENMP    
-    size_t num_tasks;
-    thread_pool_t pool;
-#endif
     
     lsystem_memo_t* memos[MAX_RULES];
 
@@ -333,163 +294,6 @@ void dynarray_destroy(dynarray_t* dynarray) {
     free(dynarray->data);
     memset(dynarray, 0, sizeof(dynarray_t));
 }
-
-
-//////////////////////////////////////////////////////////////////////
-
-#ifndef _OPENMP
-
-void* thread_pool_start(void* p) {
-    
-    thread_pool_t* pool = p;
-
-    while (1) {
-
-        pthread_mutex_lock(&pool->lock);
-
-        while (pool->next_task_idx == pool->tasks.count) {
-            ++pool->finished_count;
-            pthread_cond_broadcast(&pool->end_cond);
-            //printf("finished! count is now %d\n", (int)pool->finished_count);
-            pthread_cond_wait(&pool->start_cond, &pool->lock);
-        }
-
-        thread_pool_task_t task;
-        dynarray_get(&pool->tasks, pool->next_task_idx, &task);
-        ++pool->next_task_idx;
-
-        //printf("got task %d/%d with func %p\n",
-        //(int)pool->next_task_idx, (int)pool->tasks.count, task.func);
-
-        pthread_mutex_unlock(&pool->lock);
-        //pthread_yield_np();
-
-        if (!task.func) {
-            return 0;
-        }
-
-        task.func(task.data);
-
-    }
-
-    return 0;
-
-}
-
-void thread_pool_create(thread_pool_t* pool, size_t nthreads) {
-
-    memset(pool, 0, sizeof(thread_pool_t));
-
-    dynarray_create(&pool->tasks, sizeof(thread_pool_task_t), INIT_TASKS_CAPACITY);
-
-    if (nthreads == 1) { return; }
-    
-    const pthread_mutexattr_t* m_attr = NULL;
-    pthread_mutex_init(&pool->lock, m_attr);
-
-    const pthread_condattr_t* c_attr = NULL;
-    pthread_cond_init(&pool->start_cond, c_attr);
-    pthread_cond_init(&pool->end_cond, c_attr);
-
-    pool->thread_count = nthreads;
-    pool->threads = (pthread_t*) malloc(nthreads * sizeof(pthread_t));
-
-    pthread_mutex_lock(&pool->lock);
-
-    for (size_t i=0; i<nthreads; ++i) {
-        const pthread_attr_t* t_attr = NULL;
-        pthread_create(pool->threads + i, t_attr, thread_pool_start, pool);
-    }
-
-    //printf("waiting for threads to start up...\n");
-
-    while (pool->finished_count < nthreads) {
-        pthread_cond_wait(&pool->end_cond, &pool->lock);
-    }
-
-    pool->finished_count = 0;
-
-    //printf("all threads started!\n");
-    pthread_mutex_unlock(&pool->lock);
-
-}
-
-void thread_pool_add_task(thread_pool_t* pool, thread_pool_func_t* func, void* data) {
-
-    //printf("added a task with func %p\n", func);
-    
-    thread_pool_task_t task = { func, data };
-    dynarray_append(&pool->tasks, &task);
-    
-}
-
-
-void thread_pool_run_in_main_thread(thread_pool_t* pool) {
-
-    for (size_t i=0; i<pool->tasks.count; ++i) {
-        thread_pool_task_t task;
-        dynarray_get(&pool->tasks, i, &task);
-        task.func(task.data);
-    }
-
-    dynarray_clear(&pool->tasks);
-
-}
-
-void thread_pool_run(thread_pool_t* pool) {
-
-    if (!pool->thread_count) {
-        
-        thread_pool_run_in_main_thread(pool);
-        
-    } else {
-
-        pool->finished_count = 0;
-        pool->next_task_idx = 0;
-        
-        pthread_mutex_lock(&pool->lock);
-        pthread_cond_broadcast(&pool->start_cond);
-
-        while (pool->finished_count < pool->thread_count) {
-            pthread_cond_wait(&pool->end_cond, &pool->lock);
-        }
-
-        pthread_mutex_unlock(&pool->lock);
-        pool->next_task_idx = 0;
-        dynarray_clear(&pool->tasks);
-
-    }
-    
-}
-
-void thread_pool_destroy(thread_pool_t* pool) {
-
-    if (pool->thread_count) {
-        
-        for (size_t i=0; i<pool->thread_count; ++i) {
-            thread_pool_add_task(pool, NULL, NULL);
-        }
-
-        pthread_cond_broadcast(&pool->start_cond);
-        
-        for (size_t i=0; i<pool->thread_count; ++i) {
-            pthread_join(pool->threads[i], NULL);
-        }
-        
-        free(pool->threads);
-
-        pthread_mutex_destroy(&pool->lock);
-        pthread_cond_destroy(&pool->start_cond);
-        pthread_cond_destroy(&pool->end_cond);
-        
-    }
-
-    dynarray_destroy(&pool->tasks);
-    
-    
-}
-
-#endif
 
 //////////////////////////////////////////////////////////////////////
 
@@ -810,8 +614,6 @@ void lsystem_segments_r(const lsystem_t* lsys,
                     lsystem_segment_t* dst =
                         dynarray_elem_ptr(segments, init_count);
 
-#ifdef _OPENMP
-
                     #pragma omp parallel for if (do_parallelize)
                     for (size_t i=0; i<memo->segment_count; ++i) {
                         lsystem_segment_t newsrc = {
@@ -821,53 +623,6 @@ void lsystem_segments_r(const lsystem_t* lsys,
                         dst[i] = newsrc;
                     }
                     
-#else
-                    
-                    if (do_parallelize) {
-                        
-                        size_t batch_size =
-                            (int)ceil((double)memo->segment_count / mset->num_tasks);
-
-                        segment_xform_data_t sdata[mset->num_tasks];
-
-                        size_t start_idx = 0;
-
-                        for (size_t i=0; i<mset->num_tasks; ++i) {
-
-                            size_t end_idx = start_idx + batch_size;
-                            
-                            if (end_idx > memo->segment_count) {
-                                end_idx = memo->segment_count;
-                            }
-                            
-                            segment_xform_data_t* si = sdata + i;
-                            
-                            si->dst = dst + start_idx;
-                            si->src = src + start_idx;
-                            si->count = end_idx - start_idx;
-                            si->update_xform = &update_xform;
-
-                            start_idx = end_idx;
-
-                            thread_pool_add_task(&mset->pool,
-                                                 lsystem_transform_segments,
-                                                 si);
-
-                        }
-
-                        thread_pool_run(&mset->pool);
-                        
-                    } else {
-
-                        segment_xform_data_t sdata = {
-                            dst, src, memo->segment_count, &update_xform
-                        };
-
-                        lsystem_transform_segments(&sdata);
-
-                    }
-
-#endif                        
                     *cur_state = xform_compose(*cur_state, memo->delta_xform);
 
                     continue;
@@ -933,17 +688,6 @@ dynarray_t* lsystem_segments_recursive(const lsystem_t* lsys,
     mset.memo_depth = memo_depth;
     mset.min_parallel_segments = min_parallel_segments;
 
-
-    if (min_parallel_segments != (size_t)-1) {
-#ifndef _OPENMP    
-        mset.num_tasks = sysconf(_SC_NPROCESSORS_ONLN);
-        thread_pool_create(&mset.pool, mset.num_tasks);
-        printf("created a thread pool with %d threads!\n", (int)mset.num_tasks);
-#else
-        printf("will parallelize with OpenMP!\n");
-#endif
-    }
-
     lsystem_segments_r(lsys, lsys->start, 
                        max_depth, segments,
                        &cur_state, &xform_stack,
@@ -954,10 +698,6 @@ dynarray_t* lsystem_segments_recursive(const lsystem_t* lsys,
             free(mset.memos[i]);
         }
     }
-
-#ifndef _OPENMP    
-    thread_pool_destroy(&mset.pool);
-#endif    
 
     dynarray_destroy(&xform_stack);
 
@@ -1100,6 +840,7 @@ void parse_options(int argc, char** argv, options_t* opts) {
                 break;
             }
 
+#ifdef _OPENMP            
         } else if (!strcmp(arg, "-t")) {
             
             if (++i == argc) { ok = 0; break; }
@@ -1116,6 +857,7 @@ void parse_options(int argc, char** argv, options_t* opts) {
                 ok = 0;
                 break;
             }
+#endif
             
         } else if (!strcmp(arg, "-P")) {
             
