@@ -151,8 +151,8 @@ void initialize_known_lsystems();
 // options for running this program
 
 typedef enum lsys_method {
-    LSYS_METHOD_STRING,
-    LSYS_METHOD_RECURSION
+    LSYS_METHOD_RECURSION,
+    LSYS_METHOD_STRING
 } lsys_method_t;
 
 typedef struct options {
@@ -607,7 +607,7 @@ void parse_options(int argc, char** argv, options_t* opts) {
 
     int ok = 1;
 
-    int allow_precomputed_rotation = 1;
+    int disable_precomputed_rotation = 0;
 
     memset(opts, 0, sizeof(options_t));
     opts->max_segments = 100000;
@@ -680,9 +680,9 @@ void parse_options(int argc, char** argv, options_t* opts) {
                 break;
             }
 
-        } else if (!strcmp(arg, "-P")) {
+        } else if (!strcmp(arg, "-R")) {
             
-            allow_precomputed_rotation = 0;
+            disable_precomputed_rotation = 1;
 
         } else {
 
@@ -705,20 +705,22 @@ void parse_options(int argc, char** argv, options_t* opts) {
         printf("\n");
         printf("options:\n");
         printf("  -x MAXSEGMENTS maximum number of segments for output\n"
-               "  -s             use string building method (default)\n"
-               "  -r             use recursive method\n"
-               "  -P             don't precompute rotations\n"
+               "  -s             use string building method\n"
+               "  -r             use recursive method (default)\n"
+               "  -R             don't precompute rotations\n"
                "\n");
         exit(1);
     }
 
-    if (!allow_precomputed_rotation) {
+    printf("using %s method\n",
+           opts->method == LSYS_METHOD_STRING ? "string" : "recursion");
+
+    if (disable_precomputed_rotation) {
         printf("disabling precomputed rotation!\n");
         opts->lsys->rotation_cycle_length = 0;
     }
 
-    printf("using %s method\n",
-           opts->method == LSYS_METHOD_STRING ? "string" : "recursion");
+    printf("\n");
 
     lsys_print(opts->lsys);
     

@@ -141,8 +141,8 @@ void initialize_known_lsystems();
 // options for running this program
 
 typedef enum lsys_method {
-    LSYS_METHOD_STRING,
-    LSYS_METHOD_RECURSION
+    LSYS_METHOD_RECURSION,
+    LSYS_METHOD_STRING
 } lsys_method_t;
 
 typedef struct options {
@@ -641,14 +641,16 @@ void parse_options(int argc, char** argv, options_t* opts) {
         printf("\n");
         printf("options:\n");
         printf("  -x MAXSEGMENTS maximum number of segments for output\n"
-               "  -s             use string building method (default)\n"
-               "  -r             use recursive method\n"
+               "  -s             use string building method\n"
+               "  -r             use recursive method (default)\n"
                "\n");
         exit(1);
     }
 
     printf("using %s method\n",
            opts->method == LSYS_METHOD_STRING ? "string" : "recursion");
+
+    printf("\n");
 
     lsys_print(opts->lsys);
     

@@ -182,8 +182,8 @@ void initialize_known_lsystems();
 // options for running this program
 
 typedef enum lsys_method {
-    LSYS_METHOD_STRING,
-    LSYS_METHOD_RECURSION
+    LSYS_METHOD_RECURSION,
+    LSYS_METHOD_STRING
 } lsys_method_t;
 
 typedef struct options {
@@ -770,7 +770,8 @@ void parse_options(int argc, char** argv, options_t* opts) {
 
     int ok = 1;
 
-    int allow_precomputed_rotation = 1;
+    int disable_precomputed_rotation = 0;
+    int disable_memoization = 0;
 
     memset(opts, 0, sizeof(options_t));
     opts->max_segments = 100000;
@@ -826,23 +827,6 @@ void parse_options(int argc, char** argv, options_t* opts) {
 
             opts->method = LSYS_METHOD_RECURSION;
             
-        } else if (!strcmp(arg, "-m")) {
-            
-            if (++i == argc) { ok = 0; break; }
-            
-            int d;
-            
-            if (sscanf(argv[i], "%d", &d) != 1) {
-                ok = 0; break;
-            }
-            
-            if (d >= 0) {
-                opts->memo_depth = d;
-            } else {
-                ok = 0;
-                break;
-            }
-
         } else if (!strcmp(arg, "-x")) {
             
             if (++i == argc) { ok = 0; break; }
@@ -860,9 +844,13 @@ void parse_options(int argc, char** argv, options_t* opts) {
                 break;
             }
 
-        } else if (!strcmp(arg, "-P")) {
+        } else if (!strcmp(arg, "-M")) {
+
+            disable_memoization = 1;
             
-            allow_precomputed_rotation = 0;
+        } else if (!strcmp(arg, "-R")) {
+            
+            disable_precomputed_rotation = 1;
 
         } else {
 
@@ -875,11 +863,6 @@ void parse_options(int argc, char** argv, options_t* opts) {
 
     }
 
-    if (opts->memo_depth && opts->method == LSYS_METHOD_STRING) {
-        printf("warning: ignoring memo depth for string method!\n");
-        opts->memo_depth = 0;
-    }
-
     if (!ok || !opts->lsys || !opts->max_depth) {
         printf("usage: %s [options] LSYSTEM MAXDEPTH\n"
                "\n"
@@ -890,25 +873,41 @@ void parse_options(int argc, char** argv, options_t* opts) {
         printf("\n");
         printf("options:\n");
         printf("  -x MAXSEGMENTS maximum number of segments for output\n"
-               "  -s             use string building method (default)\n"
-               "  -r             use recursive method\n"
-               "  -m MEMODEPTH   enable memoization for recursive method\n"
-               "  -P             don't precompute rotations\n"
+               "  -s             use string building method\n"
+               "  -r             use recursive method (default)\n"
+               "  -M             disable memoization for recursive method\n"
+               "  -R             don't precompute rotations\n"
                "\n");
         exit(1);
     }
 
-    if (!allow_precomputed_rotation) {
+    printf("using %s method\n",
+           opts->method == LSYS_METHOD_STRING ? "string" : "recursion");
+    
+    if (opts->method == LSYS_METHOD_STRING) {
+        if (disable_memoization) {
+            printf("warning: disabling memoization has no effect for string method!\n");
+        }
+    }
+
+    int have_memo = (opts->method == LSYS_METHOD_RECURSION) && !disable_memoization;
+    
+    if (!have_memo) {
+        opts->memo_depth = 0;
+        if (opts->method == LSYS_METHOD_RECURSION) {
+            printf("memoization is disabled\n");
+        } 
+    } else {
+        opts->memo_depth = 4;
+        printf("memoizing to depth %d\n", (int)opts->memo_depth);
+    }
+
+    if (disable_precomputed_rotation) {
         printf("disabling precomputed rotation!\n");
         opts->lsys->rotation_cycle_length = 0;
     }
 
-    printf("using %s method\n",
-           opts->method == LSYS_METHOD_STRING ? "string" : "recursion");
-
-    if (opts->method == LSYS_METHOD_RECURSION && opts->memo_depth) {
-        printf("memo depth is %d\n", (int)opts->memo_depth);
-    }
+    printf("\n");
 
     lsys_print(opts->lsys);
     

@@ -189,8 +189,8 @@ void initialize_known_lsystems();
 // options for running this program
 
 typedef enum lsys_method {
-    LSYS_METHOD_STRING,
-    LSYS_METHOD_RECURSION
+    LSYS_METHOD_RECURSION,
+    LSYS_METHOD_STRING
 } lsys_method_t;
 
 typedef struct options {
@@ -885,7 +885,6 @@ void parse_options(int argc, char** argv, options_t* opts) {
 
     }
 
-    
     if (!ok || !opts->lsys || !opts->max_depth) {
         printf("usage: %s [options] LSYSTEM MAXDEPTH\n"
                "\n"
@@ -907,7 +906,6 @@ void parse_options(int argc, char** argv, options_t* opts) {
         exit(1);
     }
 
-
     printf("using %s method\n",
            opts->method == LSYS_METHOD_STRING ? "string" : "recursion");
     
@@ -925,6 +923,9 @@ void parse_options(int argc, char** argv, options_t* opts) {
         }
         opts->memo_depth = 0;
         opts->min_parallel_segments = (size_t)-1;
+        if (opts->method == LSYS_METHOD_RECURSION) {
+            printf("memoization is disabled\n");
+        } 
     } else if (disable_parallelization) {
         opts->memo_depth = 4;
         opts->min_parallel_segments = (size_t)-1;
@@ -942,6 +943,7 @@ void parse_options(int argc, char** argv, options_t* opts) {
         opts->lsys->rotation_cycle_length = 0;
     }
 
+    printf("\n");
 
     lsys_print(opts->lsys);
     
