@@ -786,11 +786,12 @@ void parse_options(int argc, char** argv, options_t* opts) {
 
     int ok = 1;
 
-    int allow_precomputed_rotation = 1;
+    int disable_precomputed_rotation = 0;
+    int disable_memoization = 0;
+    int disable_parallelization = 0;
 
     memset(opts, 0, sizeof(options_t));
     opts->max_segments = 100000;
-    opts->min_parallel_segments = -1;
 
     int i=1;
     int required_count = 0;
@@ -843,23 +844,6 @@ void parse_options(int argc, char** argv, options_t* opts) {
 
             opts->method = LSYS_METHOD_RECURSION;
             
-        } else if (!strcmp(arg, "-m")) {
-            
-            if (++i == argc) { ok = 0; break; }
-            
-            int d;
-            
-            if (sscanf(argv[i], "%d", &d) != 1) {
-                ok = 0; break;
-            }
-            
-            if (d >= 0) {
-                opts->memo_depth = d;
-            } else {
-                ok = 0;
-                break;
-            }
-
         } else if (!strcmp(arg, "-x")) {
             
             if (++i == argc) { ok = 0; break; }
@@ -877,28 +861,18 @@ void parse_options(int argc, char** argv, options_t* opts) {
                 break;
             }
 
+        } else if (!strcmp(arg, "-M")) {
+
+            disable_memoization = 1;
+            
 #ifdef _OPENMP            
-        } else if (!strcmp(arg, "-t")) {
-            
-            if (++i == argc) { ok = 0; break; }
-            
-            int d;
-            
-            if (sscanf(argv[i], "%d", &d) != 1) {
-                ok = 0; break;
-            }
-            
-            if (d >= -1) {
-                opts->min_parallel_segments = (size_t)d;
-            } else {
-                ok = 0;
-                break;
-            }
-#endif
-            
         } else if (!strcmp(arg, "-P")) {
             
-            allow_precomputed_rotation = 0;
+            disable_parallelization = 1;
+#endif            
+        } else if (!strcmp(arg, "-R")) {
+            
+            disable_precomputed_rotation = 1;
 
         } else {
 
@@ -911,22 +885,6 @@ void parse_options(int argc, char** argv, options_t* opts) {
 
     }
 
-    if (opts->memo_depth && opts->method == LSYS_METHOD_STRING) {
-        printf("warning: ignoring memo depth for string method!\n");
-        opts->memo_depth = 0;
-    }
-
-#ifdef _OPENMP    
-    if (opts->min_parallel_segments != (size_t)-1 && !opts->memo_depth) {
-        printf("warning: ignoring min parallel segments without memoization\n");
-        opts->min_parallel_segments = -1;
-    }
-    if (opts->min_parallel_segments != (size_t)-1) {
-        printf("will parallelize >= %d segments with %d processors\n",
-               (int)opts->min_parallel_segments,
-               (int)omp_get_num_procs());
-    }
-#endif    
     
     if (!ok || !opts->lsys || !opts->max_depth) {
         printf("usage: %s [options] LSYSTEM MAXDEPTH\n"
@@ -938,28 +896,52 @@ void parse_options(int argc, char** argv, options_t* opts) {
         printf("\n");
         printf("options:\n");
         printf("  -x MAXSEGMENTS maximum number of segments for output\n"
-               "  -s             use string building method (default)\n"
-               "  -r             use recursive method\n"
-               "  -m MEMODEPTH   enable memoization for recursive method\n"
+               "  -s             use string building method\n"
+               "  -r             use recursive method (default)\n"
+               "  -M             disable memoization for recursive method\n"
 #ifdef _OPENMP               
-               "  -t SEGMENTS    parallelize memoization for more than SEGMENTS segments\n"
+               "  -P             disable parallelization for memoization\n"
 #endif               
-               "  -P             don't precompute rotations\n"
+               "  -R             don't precompute rotations\n"
                "\n");
         exit(1);
     }
 
-    if (!allow_precomputed_rotation) {
+
+    printf("using %s method\n",
+           opts->method == LSYS_METHOD_STRING ? "string" : "recursion");
+    
+    if (opts->method == LSYS_METHOD_STRING) {
+        if (disable_memoization) {
+            printf("warning: disabling memoization has no effect for string method!\n");
+        }
+    }
+
+    int have_memo = (opts->method == LSYS_METHOD_RECURSION) && !disable_memoization;
+    
+    if (!have_memo) {
+        if (disable_parallelization) {
+            printf("warning: disabling parallelization has no effect when not memoizing\n");
+        }
+        opts->memo_depth = 0;
+        opts->min_parallel_segments = (size_t)-1;
+    } else if (disable_parallelization) {
+        opts->memo_depth = 4;
+        opts->min_parallel_segments = (size_t)-1;
+        printf("memoizing to depth %d without parallelization\n",
+               (int)opts->memo_depth);
+    } else {
+        opts->memo_depth = 10;
+        opts->min_parallel_segments = 1024;
+        printf("memoizing to depth %d and parallelizing when > %d segments\n",
+               (int)opts->memo_depth, (int)opts->min_parallel_segments);
+    }
+
+    if (disable_precomputed_rotation) {
         printf("disabling precomputed rotation!\n");
         opts->lsys->rotation_cycle_length = 0;
     }
 
-    printf("using %s method\n",
-           opts->method == LSYS_METHOD_STRING ? "string" : "recursion");
-
-    if (opts->method == LSYS_METHOD_RECURSION && opts->memo_depth) {
-        printf("memo depth is %d\n", (int)opts->memo_depth);
-    }
 
     lsys_print(opts->lsys);
     
