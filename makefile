@@ -1,5 +1,5 @@
 CC = gcc-mp-8
-CFLAGS = -Wall -g -O3 -lm -std=c99 -fopenmp
+CFLAGS = -Wall -O3 -lm -std=c99 -fopenmp
 
 #CC = cc
 #CFLAGS = -Wall -O3 -lm -std=c99 -lpthread
