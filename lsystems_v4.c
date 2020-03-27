@@ -487,11 +487,10 @@ darray_t* lsys_segments_from_string(const lsys_t* lsys,
 
 void _lsys_segments_r(const lsys_t* lsys,
                       const char* lstring, 
-                      size_t max_depth,
+                      size_t remaining_depth,
                       darray_t* segments,
                       lsys_state_t* cur_state,
                       darray_t* state_stack) {
-
 
     for (const char* psymbol=lstring; *psymbol; ++psymbol) {
 
@@ -499,10 +498,10 @@ void _lsys_segments_r(const lsys_t* lsys,
         
         const lsys_sized_string_t* rule = lsys->rules + symbol;
 
-        if (max_depth && rule->replacement) {
+        if (remaining_depth && rule->replacement) {
 
             _lsys_segments_r(lsys, rule->replacement,
-                             max_depth-1,
+                             remaining_depth-1,
                              segments, cur_state, state_stack);
 
         } else {
