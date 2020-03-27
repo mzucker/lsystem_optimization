@@ -15,10 +15,6 @@
 #include <math.h>
 #include <time.h>
 
-#ifdef _OPENMP
-#include <omp.h>
-#endif
-
 //////////////////////////////////////////////////////////////////////
 // for benchmarking
 

@@ -60,6 +60,8 @@ typedef struct rot2d {
     float c, s;
 } rot2d_t;
 
+int positive_mod(int ticks, int divisor);
+
 //////////////////////////////////////////////////////////////////////
 // L-System types/functions
 
@@ -91,6 +93,8 @@ typedef struct lsystem {
     lsys_sized_string_t rules[LSYS_MAX_RULES];
     unsigned char       draw_chars[LSYS_MAX_RULES];
     double              turn_angle_rad;
+    int                 rotation_cycle_length;
+    rot2d_t             rotations[LSYS_MAX_CYCLE_LENGTH];
     
 } lsys_t;
 
@@ -171,7 +175,20 @@ double get_time_as_double() {
     return (double)tp.tv_sec + (double)tp.tv_nsec * 1e-9;
 
 }
- 
+
+//////////////////////////////////////////////////////////////////////
+
+int positive_mod(int ticks, int divisor) {
+
+    int rval = ticks % divisor;
+    if (ticks < 0) {
+        rval += divisor;
+    }
+
+    return rval;
+
+}
+
 //////////////////////////////////////////////////////////////////////
 
 void darray_create(darray_t* darray, size_t elem_size, size_t capacity) {
@@ -274,6 +291,20 @@ void lsys_create(lsys_t* lsys,
 
     lsys->turn_angle_rad = turn_angle_deg * M_PI / 180.f;
 
+    for (int i=0; i<=LSYS_MAX_CYCLE_LENGTH; ++i) {
+        
+        if (i > 0 && fmod(turn_angle_deg*i, 360.) == 0) {
+            lsys->rotation_cycle_length = i;
+            break;
+        }
+        
+        float theta = lsys->turn_angle_rad * i;
+        
+        lsys->rotations[i].c = cosf(theta);
+        lsys->rotations[i].s = sinf(theta);
+        
+    }
+
     if (draw_chars) {
         lsys->draw_chars[0] = 1;
         for (const char* c=draw_chars; *c; ++c) {
@@ -294,6 +325,9 @@ void lsys_print(const lsys_t* lsys) {
         }
     }
     printf("  turn_angle_deg: %g\n", lsys->turn_angle_rad * 180.f / M_PI);
+    if (lsys->rotation_cycle_length) {
+        printf("  rotation_cycle_length: %d\n", lsys->rotation_cycle_length);
+    }
     printf("\n");
 
 }
@@ -381,14 +415,32 @@ void _lsys_execute_symbol(const lsys_t* lsys,
 
     } else if (symbol == '+' || symbol == '-') {
 
-        float delta = ( (symbol == '+') ?
-                        lsys->turn_angle_rad : -lsys->turn_angle_rad );
-        
-        state->angle += delta;
+        if (lsys->rotation_cycle_length) {
 
-        state->rot.c = cosf(state->angle);
-        state->rot.s = sinf(state->angle);
-        
+            int delta = (symbol == '+') ? 1 : -1;
+
+            int t = state->angle;
+
+            t = positive_mod(t + delta,
+                             lsys->rotation_cycle_length);
+
+            const rot2d_t* r = lsys->rotations + t;
+
+            state->angle = t;
+            state->rot = *r;
+            
+        } else {
+
+            float delta = ( (symbol == '+') ?
+                            lsys->turn_angle_rad : -lsys->turn_angle_rad );
+            
+            state->angle += delta;
+
+            state->rot.c = cosf(state->angle);
+            state->rot.s = sinf(state->angle);
+
+        }
+
     } else if (symbol == '[') {
 
         darray_push_back(state_stack, state);
@@ -555,6 +607,8 @@ void parse_options(int argc, char** argv, options_t* opts) {
 
     int ok = 1;
 
+    int allow_precomputed_rotation = 1;
+
     memset(opts, 0, sizeof(options_t));
     opts->max_segments = 100000;
 
@@ -626,6 +680,10 @@ void parse_options(int argc, char** argv, options_t* opts) {
                 break;
             }
 
+        } else if (!strcmp(arg, "-P")) {
+            
+            allow_precomputed_rotation = 0;
+
         } else {
 
             fprintf(stderr, "error: unrecognized option %s\n\n", arg);
@@ -651,6 +709,11 @@ void parse_options(int argc, char** argv, options_t* opts) {
                "  -r             use recursive method\n"
                "\n");
         exit(1);
+    }
+
+    if (!allow_precomputed_rotation) {
+        printf("disabling precomputed rotation!\n");
+        opts->lsys->rotation_cycle_length = 0;
     }
 
     printf("using %s method\n",

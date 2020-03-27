@@ -4,7 +4,7 @@ CFLAGS = -Wall -O3 -lm -std=c99 -fopenmp
 #CC = cc
 #CFLAGS = -Wall -O3 -lm -std=c99 -lpthread
 
-PROGS = lsystems_v2 lsystems_v3 lsystems_v6
+PROGS = lsystems_v2 lsystems_v3 lsystems_v4 lsystems_v6
 DEBUG_PROGS = $(PROGS:=_debug)
 
 all: $(PROGS)
