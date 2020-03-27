@@ -1,7 +1,6 @@
 //////////////////////////////////////////////////////////////////////
 //
-// lsystems.c
-//
+// lsystems_v6.c
 // Matt Zucker
 //
 //////////////////////////////////////////////////////////////////////
@@ -112,13 +111,13 @@ typedef struct lsys_sized_string {
 // L-System datatype
 typedef struct lsystem {
 
-    const char*            name;
-    const char*            start;
+    const char*         name;
+    const char*         start;
     lsys_sized_string_t rules[LSYS_MAX_RULES];
-    unsigned char          draw_chars[LSYS_MAX_RULES];
-    double                 turn_angle_rad;
-    int                    rotation_cycle_length;
-    rot2d_t                rotations[LSYS_MAX_CYCLE_LENGTH];
+    unsigned char       draw_chars[LSYS_MAX_RULES];
+    double              turn_angle_rad;
+    int                 rotation_cycle_length;
+    rot2d_t             rotations[LSYS_MAX_CYCLE_LENGTH];
     
 } lsys_t;
 

@@ -4,7 +4,10 @@ CFLAGS = -Wall -O3 -lm -std=c99 -fopenmp
 #CC = cc
 #CFLAGS = -Wall -O3 -lm -std=c99 -lpthread
 
-all: lsystems 
+PROGS = lsystems_v2 lsystems_v6
+DEBUG_PROGS = $(PROGS:=_debug)
+
+all: $(PROGS)
 
 %: %.c makefile
 	$(CC) $(CFLAGS) -o $@ $<
@@ -14,7 +17,7 @@ all: lsystems
 
 .PHONY: clean
 
-debug: lsystems_debug
+debug: $(DEBUG_PROGS)
 
 clean:
-	rm -f lsystems lsystems_debug
+	rm -f $(PROGS) $(DEBUG_PROGS)
