@@ -25,13 +25,11 @@ def main():
         'lsystems_v6'
     ]
 
-    test_programs = ['lsystems_v5', 'lsystems_v6']
-
     expected_python_slowdown = 100.
 
     expr = re.compile(r'generated (.*) segments in (.*) s \(')
 
-    ostr = open('benchmark_results.txt', 'a')
+    ostr = open('benchmark_results.txt', 'w')
     
     for prog in test_programs:
 
