@@ -419,10 +419,8 @@ void _lsys_execute_symbol(const lsys_t* lsys,
 
             int delta = (symbol == '+') ? 1 : -1;
 
-            int t = state->angle;
-
-            t = positive_mod(t + delta,
-                             lsys->rotation_cycle_length);
+            int t = positive_mod(state->angle + delta,
+                                 lsys->rotation_cycle_length);
 
             state->angle = t;
             state->rot = lsys->rotations[t];
