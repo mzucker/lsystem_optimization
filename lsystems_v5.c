@@ -424,10 +424,8 @@ void _lsys_execute_symbol(const lsys_t* lsys,
             t = positive_mod(t + delta,
                              lsys->rotation_cycle_length);
 
-            const rot2d_t* r = lsys->rotations + t;
-
             state->angle = t;
-            state->rot = *r;
+            state->rot = lsys->rotations[t];
 
         } else {
 
