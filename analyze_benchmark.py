@@ -78,13 +78,14 @@ def main():
     plt.title('L-System benchmark results')
 
     plt.gca().set_axisbelow(True)
+
         
     plt.yscale('log')
     #plt.show()
 
-    plt.savefig('benchmark_results.png', dpi=300)
+    plt.savefig('benchmark_results.png', dpi=300, facecolor=(1., 1., 1., 0.))
 
-    os.system('mogrify -trim -bordercolor White -border 10x10 benchmark_results.png')
+    os.system('mogrify -trim -bordercolor transparent -border 10x10 benchmark_results.png')
     
 
 
