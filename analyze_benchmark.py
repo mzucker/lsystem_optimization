@@ -43,10 +43,19 @@ def main():
         presults = results[prog]
         assert set(presults.keys()) == test_names
         result_data = np.array(list(presults.values())) * 1e6
-        mean_times[pidx] = np.power(result_data.prod(), 1.0/len(result_data))
-        errs[0, pidx] = mean_times[pidx] - result_data.min()
-        errs[1, pidx] = result_data.max() - mean_times[pidx]
+        mtime = np.power(result_data.prod(), 1.0/len(result_data))
+        mean_times[pidx] = mtime
+        errs[0, pidx] = mtime - result_data.min()
+        errs[1, pidx] = result_data.max() - mtime
 
+        unit = 'μs'
+        if mtime < 1:
+            mtime *= 1e3
+            unit = 'ns'
+        print('{} {:.4g} {}'.format(prog, mtime, unit))
+        
+
+        
     assert np.all(errs >= 0)
 
     is_c = np.array([not p.endswith('.py') for p in progs])
