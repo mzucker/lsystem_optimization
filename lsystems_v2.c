@@ -111,7 +111,7 @@ void lsys_create(lsys_t* lsys,
 
 void lsys_print(const lsys_t* lsys);
 
-char* lsys_build_string(const lsys_t* lsys, size_t max_depth);
+char* lsys_build_string(const lsys_t* lsys, size_t total_iterations);
 
 darray_t* lsys_segments_from_string(const lsys_t* lsys,
                                     const char* lstring);
@@ -139,7 +139,7 @@ void initialize_known_lsystems(void);
 
 typedef struct options {
     lsys_t* lsys;
-    size_t  max_depth;
+    size_t  total_iterations;
     size_t  max_segments;
 } options_t;
 
@@ -283,7 +283,7 @@ void lsys_print(const lsys_t* lsys) {
 
 }
 
-char* lsys_build_string(const lsys_t* lsys, size_t max_depth) {
+char* lsys_build_string(const lsys_t* lsys, size_t total_iterations) {
 
     darray_t string_darrays[2];
 
@@ -298,7 +298,7 @@ char* lsys_build_string(const lsys_t* lsys, size_t max_depth) {
                   lsys->start,
                   strlen(lsys->start));
 
-    for (int i=0; i<max_depth; ++i) {
+    for (int i=0; i<total_iterations; ++i) {
 
         int next_idx = 1 - cur_idx;
 
@@ -519,7 +519,7 @@ void parse_options(int argc, char** argv, options_t* opts) {
                     break;
                 }
 
-                opts->max_depth = d;
+                opts->total_iterations = d;
 
             } else {
 
@@ -558,8 +558,8 @@ void parse_options(int argc, char** argv, options_t* opts) {
 
     }
 
-    if (!ok || !opts->lsys || !opts->max_depth) {
-        printf("usage: %s [options] LSYSTEM MAXDEPTH\n"
+    if (!ok || !opts->lsys || !opts->total_iterations) {
+        printf("usage: %s [options] LSYSTEM ITERATIONS\n"
                "\n"
                "where LSYSTEM is one of:\n", argv[0]);
         for (int j=0; j<NUM_KNOWN_LSYSTEMS; ++j) {
@@ -598,7 +598,7 @@ int main(int argc, char** argv) {
     darray_t* segments;
 
     char* lstring = lsys_build_string(opts.lsys,
-                                      opts.max_depth);
+                                      opts.total_iterations);
 
     segments = lsys_segments_from_string(opts.lsys, lstring);
 

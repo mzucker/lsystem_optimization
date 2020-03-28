@@ -121,13 +121,13 @@ void lsys_create(lsys_t* lsys,
 
 void lsys_print(const lsys_t* lsys);
 
-char* lsys_build_string(const lsys_t* lsys, size_t max_depth);
+char* lsys_build_string(const lsys_t* lsys, size_t total_iterations);
 
 darray_t* lsys_segments_from_string(const lsys_t* lsys,
                                     const char* lstring);
 
 darray_t* lsys_segments_recursive(const lsys_t* lsys,
-                                  size_t max_depth);
+                                  size_t total_iterations);
 
 //////////////////////////////////////////////////////////////////////
 // set up some known L-Systems
@@ -157,7 +157,7 @@ typedef enum lsys_method {
 
 typedef struct options {
     lsys_t*       lsys;
-    size_t        max_depth;
+    size_t        total_iterations;
     size_t        max_segments;
     lsys_method_t method;
 } options_t;
@@ -332,7 +332,7 @@ void lsys_print(const lsys_t* lsys) {
 
 }
 
-char* lsys_build_string(const lsys_t* lsys, size_t max_depth) {
+char* lsys_build_string(const lsys_t* lsys, size_t total_iterations) {
 
     darray_t string_darrays[2];
 
@@ -347,7 +347,7 @@ char* lsys_build_string(const lsys_t* lsys, size_t max_depth) {
                   lsys->start,
                   strlen(lsys->start));
 
-    for (int i=0; i<max_depth; ++i) {
+    for (int i=0; i<total_iterations; ++i) {
 
         int next_idx = 1 - cur_idx;
 
@@ -486,7 +486,7 @@ darray_t* lsys_segments_from_string(const lsys_t* lsys,
 
 void _lsys_segments_r(const lsys_t* lsys,
                       const char* lstring,
-                      size_t remaining_depth,
+                      size_t remaining_iterations,
                       darray_t* segments,
                       lsys_state_t* cur_state,
                       darray_t* state_stack) {
@@ -497,10 +497,10 @@ void _lsys_segments_r(const lsys_t* lsys,
 
         const lsys_sized_string_t* rule = lsys->rules + symbol;
 
-        if (remaining_depth && rule->replacement) {
+        if (remaining_iterations && rule->replacement) {
 
             _lsys_segments_r(lsys, rule->replacement,
-                             remaining_depth-1,
+                             remaining_iterations-1,
                              segments, cur_state, state_stack);
 
         } else {
@@ -515,7 +515,7 @@ void _lsys_segments_r(const lsys_t* lsys,
 }
 
 darray_t* lsys_segments_recursive(const lsys_t* lsys,
-                                  size_t max_depth) {
+                                  size_t total_iterations) {
 
     darray_t* segments = malloc(sizeof(darray_t));
     darray_create(segments, sizeof(lsys_segment_t),
@@ -528,7 +528,7 @@ darray_t* lsys_segments_recursive(const lsys_t* lsys,
     lsys_state_t cur_state = LSYS_START_STATE;
 
     _lsys_segments_r(lsys, lsys->start,
-                     max_depth, segments,
+                     total_iterations, segments,
                      &cur_state, &state_stack);
 
     darray_destroy(&state_stack);
@@ -641,7 +641,7 @@ void parse_options(int argc, char** argv, options_t* opts) {
                     break;
                 }
 
-                opts->max_depth = d;
+                opts->total_iterations = d;
 
             } else {
 
@@ -692,8 +692,8 @@ void parse_options(int argc, char** argv, options_t* opts) {
 
     }
 
-    if (!ok || !opts->lsys || !opts->max_depth) {
-        printf("usage: %s [options] LSYSTEM MAXDEPTH\n"
+    if (!ok || !opts->lsys || !opts->total_iterations) {
+        printf("usage: %s [options] LSYSTEM ITERATIONS\n"
                "\n"
                "where LSYSTEM is one of:\n", argv[0]);
         for (int j=0; j<NUM_KNOWN_LSYSTEMS; ++j) {
@@ -745,7 +745,7 @@ int main(int argc, char** argv) {
     if (opts.method == LSYS_METHOD_STRING) {
 
         char* lstring = lsys_build_string(opts.lsys,
-                                          opts.max_depth);
+                                          opts.total_iterations);
 
         segments = lsys_segments_from_string(opts.lsys, lstring);
 
@@ -753,7 +753,7 @@ int main(int argc, char** argv) {
 
     } else {
 
-        segments = lsys_segments_recursive(opts.lsys, opts.max_depth);
+        segments = lsys_segments_recursive(opts.lsys, opts.total_iterations);
 
     }
 

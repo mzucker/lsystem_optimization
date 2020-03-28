@@ -77,13 +77,13 @@ KNOWN_LSYSTEMS = {
 # make a big ol' string from an L-System starting from its start state
 # using repeated string replacement.
 
-def lsys_build_string(lsys, max_depth):
+def lsys_build_string(lsys, total_iterations):
 
     lstring = lsys.start
 
     rules = lsys.rules
 
-    for i in range(max_depth):
+    for i in range(total_iterations):
 
         output = ''
 
@@ -162,8 +162,8 @@ def parse_options():
                         type=str,
                         choices=KNOWN_LSYSTEMS)
 
-    parser.add_argument('max_depth', metavar='MAXDEPTH', nargs=1,
-                        help='maximum depth to evaluate', type=int)
+    parser.add_argument('total_iterations', metavar='ITERATIONS', nargs=1,
+                        help='number of iterations', type=int)
 
     parser.add_argument('-x', dest='max_segments', metavar='MAXSEGMENTS',
                         type=int, default=100000,
@@ -175,7 +175,7 @@ def parse_options():
     opts = parser.parse_args()
 
     opts.lname = opts.lname[0]
-    opts.max_depth = opts.max_depth[0]
+    opts.total_iterations = opts.total_iterations[0]
 
     opts.lsys = KNOWN_LSYSTEMS[opts.lname]
 
@@ -191,7 +191,7 @@ def main():
     # time segment generation
     start = datetime.now()
 
-    lstring = lsys_build_string(opts.lsys, opts.max_depth)
+    lstring = lsys_build_string(opts.lsys, opts.total_iterations)
 
     segments = lsys_segments_from_string(opts.lsys, lstring)
 

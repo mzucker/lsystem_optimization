@@ -77,13 +77,13 @@ KNOWN_LSYSTEMS = {
 # make a big ol' string from an L-System starting from its start state
 # using repeated string replacement.
 
-def lsys_build_string(lsys, max_depth):
+def lsys_build_string(lsys, total_iterations):
 
     lstring = lsys.start
 
     rules = lsys.rules
 
-    for i in range(max_depth):
+    for i in range(total_iterations):
 
         output = ''
 
@@ -170,7 +170,7 @@ def lsys_segments_from_string(lsys, lstring):
 # directly, use lsys_segments_recursive instead
 
 def _lsys_segments_r(lsys, s,
-                     remaining_steps,
+                     remaining_iterations,
                      cur_state,
                      state_stack,
                      segments):
@@ -179,14 +179,14 @@ def _lsys_segments_r(lsys, s,
     for symbol in s:
 
         # see if we can run a replacement rule for this symbol
-        if remaining_steps > 0 and symbol in lsys.rules:
+        if remaining_iterations > 0 and symbol in lsys.rules:
 
             # get the replacement
             replacement = lsys.rules[symbol]
             
             # recursively call this function with fewer remaining steps
             cur_state = _lsys_segments_r(lsys, replacement, 
-                                         remaining_steps-1,
+                                         remaining_iterations-1,
                                          cur_state,
                                          state_stack, segments)
 
@@ -200,7 +200,7 @@ def _lsys_segments_r(lsys, s,
 ######################################################################
 # build up segment list recursively by calling helper function above
 
-def lsys_segments_recursive(lsys, max_depth):
+def lsys_segments_recursive(lsys, total_iterations):
 
     cur_pos = np.array([0., 0.])
     cur_angle_deg = 0
@@ -213,7 +213,7 @@ def lsys_segments_recursive(lsys, max_depth):
     s = lsys.start
 
     _lsys_segments_r(lsys, s,
-                     max_depth,
+                     total_iterations,
                      cur_state,
                      state_stack,
                      segments)
@@ -233,8 +233,8 @@ def parse_options():
                         type=str,
                         choices=KNOWN_LSYSTEMS)
 
-    parser.add_argument('max_depth', metavar='MAXDEPTH', nargs=1,
-                        help='maximum depth to evaluate', type=int)
+    parser.add_argument('total_iterations', metavar='ITERATIONS', nargs=1,
+                        help='number of iterations', type=int)
 
     parser.add_argument('-x', dest='max_segments', metavar='MAXSEGMENTS',
                         type=int, default=100000,
@@ -254,7 +254,7 @@ def parse_options():
     opts = parser.parse_args()
 
     opts.lname = opts.lname[0]
-    opts.max_depth = opts.max_depth[0]
+    opts.total_iterations = opts.total_iterations[0]
 
     opts.lsys = KNOWN_LSYSTEMS[opts.lname]
 
@@ -277,11 +277,11 @@ def main():
 
     if opts.use_recursion:
         
-        segments = lsys_segments_recursive(opts.lsys, opts.max_depth)
+        segments = lsys_segments_recursive(opts.lsys, opts.total_iterations)
 
     else:
 
-        lstring = lsys_build_string(opts.lsys, opts.max_depth)
+        lstring = lsys_build_string(opts.lsys, opts.total_iterations)
 
         segments = lsys_segments_from_string(opts.lsys, lstring)
 

@@ -126,7 +126,7 @@ typedef struct lsys_rule_def {
 // datatype for memoizing a single L-System rule
 typedef struct lsys_memo {
 
-    size_t memo_depth;
+    size_t memo_iterations;
 
     size_t segment_start;
     size_t segment_count;
@@ -139,7 +139,7 @@ typedef struct lsys_memo {
 // datatype for memoizing an entire L-system
 typedef struct lsys_memo_set {
 
-    size_t max_depth;
+    size_t total_iterations;
     size_t min_memo_segments;
 
     lsys_memo_t* memos[LSYS_MAX_RULES];
@@ -155,13 +155,13 @@ void lsys_create(lsys_t* lsys,
 
 void lsys_print(const lsys_t* lsys);
 
-char* lsys_build_string(const lsys_t* lsys, size_t max_depth);
+char* lsys_build_string(const lsys_t* lsys, size_t total_iterations);
 
 darray_t* lsys_segments_from_string(const lsys_t* lsys,
                                     const char* lstring);
 
 darray_t* lsys_segments_recursive(const lsys_t* lsys,
-                                  size_t max_depth,
+                                  size_t total_iterations,
                                   size_t min_memo_segments);
 
 //////////////////////////////////////////////////////////////////////
@@ -192,7 +192,7 @@ typedef enum lsys_method {
 
 typedef struct options {
     lsys_t*       lsys;
-    size_t        max_depth;
+    size_t        total_iterations;
     size_t        max_segments;
     lsys_method_t method;
     size_t        min_memo_segments;
@@ -427,7 +427,7 @@ void lsys_print(const lsys_t* lsys) {
 
 }
 
-char* lsys_build_string(const lsys_t* lsys, size_t max_depth) {
+char* lsys_build_string(const lsys_t* lsys, size_t total_iterations) {
 
     darray_t string_darrays[2];
 
@@ -442,7 +442,7 @@ char* lsys_build_string(const lsys_t* lsys, size_t max_depth) {
                   lsys->start,
                   strlen(lsys->start));
 
-    for (int i=0; i<max_depth; ++i) {
+    for (int i=0; i<total_iterations; ++i) {
 
         int next_idx = 1 - cur_idx;
 
@@ -581,7 +581,7 @@ darray_t* lsys_segments_from_string(const lsys_t* lsys,
 
 void _lsys_segments_r(const lsys_t* lsys,
                       const char* lstring,
-                      size_t remaining_depth,
+                      size_t remaining_iterations,
                       darray_t* segments,
                       xform_t* cur_state,
                       darray_t* xform_stack,
@@ -593,7 +593,7 @@ void _lsys_segments_r(const lsys_t* lsys,
 
         const lsys_sized_string_t* rule = lsys->rules + symbol;
 
-        if (remaining_depth && rule->replacement) {
+        if (remaining_iterations && rule->replacement) {
 
             size_t segment_start = segments->count;
             xform_t xform_start = *cur_state;
@@ -602,7 +602,7 @@ void _lsys_segments_r(const lsys_t* lsys,
 
                 lsys_memo_t* memo = mset->memos[symbol];
 
-                if (memo && memo->memo_depth == remaining_depth) {
+                if (memo && memo->memo_iterations == remaining_iterations) {
 
                     xform_t update_xform =
                         xform_compose(*cur_state, memo->init_inverse);
@@ -632,7 +632,7 @@ void _lsys_segments_r(const lsys_t* lsys,
             }
 
             _lsys_segments_r(lsys, rule->replacement,
-                             remaining_depth-1,
+                             remaining_iterations-1,
                              segments, cur_state, xform_stack,
                              mset);
 
@@ -641,11 +641,11 @@ void _lsys_segments_r(const lsys_t* lsys,
                 size_t segment_count = segments->count - segment_start;
 
                 if (segment_count > mset->min_memo_segments ||
-                    remaining_depth == mset->max_depth - 2) {
+                    remaining_iterations == mset->total_iterations - 2) {
 
                     lsys_memo_t* new_memo = malloc(sizeof(lsys_memo_t));
 
-                    new_memo->memo_depth = remaining_depth;
+                    new_memo->memo_iterations = remaining_iterations;
                     new_memo->segment_start = segment_start;
                     new_memo->segment_count = segment_count;
                     new_memo->init_inverse = xform_inverse(xform_start);
@@ -671,7 +671,7 @@ void _lsys_segments_r(const lsys_t* lsys,
 }
 
 darray_t* lsys_segments_recursive(const lsys_t* lsys,
-                                  size_t max_depth,
+                                  size_t total_iterations,
                                   size_t min_memo_segments) {
 
     darray_t* segments = malloc(sizeof(darray_t));
@@ -687,11 +687,11 @@ darray_t* lsys_segments_recursive(const lsys_t* lsys,
     lsys_memo_set_t mset;
     memset(&mset, 0, sizeof(mset));
 
-    mset.max_depth = max_depth;
+    mset.total_iterations = total_iterations;
     mset.min_memo_segments = min_memo_segments;
 
     _lsys_segments_r(lsys, lsys->start,
-                     max_depth, segments,
+                     total_iterations, segments,
                      &cur_state, &xform_stack,
                      &mset);
 
@@ -812,7 +812,7 @@ void parse_options(int argc, char** argv, options_t* opts) {
                     break;
                 }
 
-                opts->max_depth = d;
+                opts->total_iterations = d;
 
             } else {
 
@@ -867,8 +867,8 @@ void parse_options(int argc, char** argv, options_t* opts) {
 
     }
 
-    if (!ok || !opts->lsys || !opts->max_depth) {
-        printf("usage: %s [options] LSYSTEM MAXDEPTH\n"
+    if (!ok || !opts->lsys || !opts->total_iterations) {
+        printf("usage: %s [options] LSYSTEM ITERATIONS\n"
                "\n"
                "where LSYSTEM is one of:\n", argv[0]);
         for (int j=0; j<NUM_KNOWN_LSYSTEMS; ++j) {
@@ -940,7 +940,7 @@ int main(int argc, char** argv) {
     if (opts.method == LSYS_METHOD_STRING) {
 
         char* lstring = lsys_build_string(opts.lsys,
-                                          opts.max_depth);
+                                          opts.total_iterations);
 
         segments = lsys_segments_from_string(opts.lsys, lstring);
 
@@ -948,7 +948,7 @@ int main(int argc, char** argv) {
 
     } else {
 
-        segments = lsys_segments_recursive(opts.lsys, opts.max_depth,
+        segments = lsys_segments_recursive(opts.lsys, opts.total_iterations,
                                            opts.min_memo_segments);
 
     }
