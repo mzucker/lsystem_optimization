@@ -29,7 +29,7 @@ typedef struct darray {
     size_t elem_size;
     size_t capacity;
     size_t count;
-    
+
     unsigned char* data;
 
 } darray_t;
@@ -82,7 +82,7 @@ typedef struct lsys_segment {
 // rule tagged with string length for string replacement
 typedef struct lsys_sized_string {
     const char* replacement;
-    size_t length;
+    size_t      length;
 } lsys_sized_string_t;
 
 // L-System datatype
@@ -95,19 +95,19 @@ typedef struct lsystem {
     double              turn_angle_rad;
     int                 rotation_cycle_length;
     rot2d_t             rotations[LSYS_MAX_CYCLE_LENGTH];
-    
+
 } lsys_t;
 
 // lsystem character + replacement pair, for defining L-Systems
 typedef struct lsys_rule_def {
-    char symbol;
+    char        symbol;
     const char* replacement;
 } lsys_rule_def_t;
 
 typedef struct lsys_state {
     point2d_t pos;
-    rot2d_t rot;
-    float angle;
+    rot2d_t   rot;
+    float     angle;
 } lsys_state_t;
 
 static const lsys_state_t LSYS_START_STATE = { { 0.f, 0.f, }, { 1.f, 0.f }, 0.f };
@@ -192,22 +192,22 @@ int positive_mod(int ticks, int divisor) {
 //////////////////////////////////////////////////////////////////////
 
 void darray_create(darray_t* darray, size_t elem_size, size_t capacity) {
-    
+
     size_t alloc_size = elem_size * capacity;
-    
+
     darray->elem_size = elem_size;
     darray->count = 0;
     darray->capacity = capacity;
     darray->data = malloc(alloc_size);
-    
+
 }
 
 void darray_resize(darray_t* darray, size_t new_count) {
 
     if (new_count > darray->capacity) {
-        
+
         size_t new_capacity = darray->capacity;
-        
+
         while (new_capacity <= new_count) {
             new_capacity *= 2;
         }
@@ -216,11 +216,11 @@ void darray_resize(darray_t* darray, size_t new_count) {
 
         darray->data = realloc(darray->data, alloc_size);
         darray->capacity = new_capacity;
-        
+
     }
 
     darray->count = new_count;
-        
+
 }
 
 void darray_extend(darray_t* darray, const void* elements, size_t count) {
@@ -252,7 +252,7 @@ void darray_get(const darray_t* darray, size_t idx, void* dst) {
 void darray_set(darray_t* darray, size_t idx, const void* src) {
     memcpy(darray_elem_ptr(darray, idx), src, darray->elem_size);
 }
- 
+
 void darray_pop_back(darray_t* darray, void* dst) {
     darray->count -= 1;
     size_t offset = darray->count * darray->elem_size;
@@ -271,11 +271,11 @@ void darray_destroy(darray_t* darray) {
 //////////////////////////////////////////////////////////////////////
 
 void lsys_create(lsys_t* lsys,
-                    const char* name,
-                    const char* start,
-                    lsys_rule_def_t const rules[],
-                    double turn_angle_deg,
-                    const char* draw_chars) {
+                 const char* name,
+                 const char* start,
+                 lsys_rule_def_t const rules[],
+                 double turn_angle_deg,
+                 const char* draw_chars) {
 
     lsys->name = name;
     lsys->start = start;
@@ -292,17 +292,17 @@ void lsys_create(lsys_t* lsys,
     lsys->turn_angle_rad = turn_angle_deg * M_PI / 180.f;
 
     for (int i=0; i<=LSYS_MAX_CYCLE_LENGTH; ++i) {
-        
+
         if (i > 0 && fmod(turn_angle_deg*i, 360.) == 0) {
             lsys->rotation_cycle_length = i;
             break;
         }
-        
+
         float theta = lsys->turn_angle_rad * i;
-        
+
         lsys->rotations[i].c = cosf(theta);
         lsys->rotations[i].s = sinf(theta);
-        
+
     }
 
     if (draw_chars) {
@@ -333,16 +333,16 @@ void lsys_print(const lsys_t* lsys) {
 }
 
 char* lsys_build_string(const lsys_t* lsys, size_t max_depth) {
-    
+
     darray_t string_darrays[2];
-    
+
     for (int i=0; i<2; ++i) {
         darray_create(string_darrays + i, sizeof(char),
-                        LSYS_INIT_STRING_CAPACITY);
+                      LSYS_INIT_STRING_CAPACITY);
     }
 
     int cur_idx = 0;
-    
+
     darray_extend(string_darrays + cur_idx,
                   lsys->start,
                   strlen(lsys->start));
@@ -355,16 +355,16 @@ char* lsys_build_string(const lsys_t* lsys, size_t max_depth) {
         darray_t* dst_darray = string_darrays + next_idx;
 
         darray_clear(dst_darray);
-        
+
         const char* start = (const char*)src_darray->data;
         const char* end = start + src_darray->count;
 
         for (const char* c=start; c!=end; ++c) {
 
             const lsys_sized_string_t* rule = lsys->rules + (int)*c;
-            
+
             if (rule->replacement) {
-                
+
                 darray_extend(dst_darray,
                               rule->replacement,
                               rule->length);
@@ -378,7 +378,7 @@ char* lsys_build_string(const lsys_t* lsys, size_t max_depth) {
         }
 
         cur_idx = next_idx;
-        
+
     }
 
     const char nul = '\0';
@@ -428,12 +428,12 @@ void _lsys_execute_symbol(const lsys_t* lsys,
 
             state->angle = t;
             state->rot = *r;
-            
+
         } else {
 
             float delta = ( (symbol == '+') ?
                             lsys->turn_angle_rad : -lsys->turn_angle_rad );
-            
+
             state->angle += delta;
 
             state->rot.c = cosf(state->angle);
@@ -464,7 +464,7 @@ darray_t* lsys_segments_from_string(const lsys_t* lsys,
     darray_t* segments = malloc(sizeof(darray_t));
 
     darray_create(segments, sizeof(lsys_segment_t),
-                    LSYS_INIT_SEGMENTS_CAPACITY);
+                  LSYS_INIT_SEGMENTS_CAPACITY);
 
     darray_t state_stack;
     darray_create(&state_stack, sizeof(lsys_state_t),
@@ -486,7 +486,7 @@ darray_t* lsys_segments_from_string(const lsys_t* lsys,
 }
 
 void _lsys_segments_r(const lsys_t* lsys,
-                      const char* lstring, 
+                      const char* lstring,
                       size_t remaining_depth,
                       darray_t* segments,
                       lsys_state_t* cur_state,
@@ -495,7 +495,7 @@ void _lsys_segments_r(const lsys_t* lsys,
     for (const char* psymbol=lstring; *psymbol; ++psymbol) {
 
         int symbol = *psymbol;
-        
+
         const lsys_sized_string_t* rule = lsys->rules + symbol;
 
         if (remaining_depth && rule->replacement) {
@@ -510,7 +510,7 @@ void _lsys_segments_r(const lsys_t* lsys,
                                  cur_state, state_stack);
 
         }
-        
+
     }
 
 }
@@ -519,9 +519,9 @@ darray_t* lsys_segments_recursive(const lsys_t* lsys,
                                   size_t max_depth) {
 
     darray_t* segments = malloc(sizeof(darray_t));
-    
+
     darray_create(segments, sizeof(lsys_segment_t),
-                    LSYS_INIT_SEGMENTS_CAPACITY);
+                  LSYS_INIT_SEGMENTS_CAPACITY);
 
     darray_t state_stack;
     darray_create(&state_stack, sizeof(lsys_state_t),
@@ -529,7 +529,7 @@ darray_t* lsys_segments_recursive(const lsys_t* lsys,
 
     lsys_state_t cur_state = LSYS_START_STATE;
 
-    _lsys_segments_r(lsys, lsys->start, 
+    _lsys_segments_r(lsys, lsys->start,
                      max_depth, segments,
                      &cur_state, &state_stack);
 
@@ -545,58 +545,58 @@ darray_t* lsys_segments_recursive(const lsys_t* lsys,
 void initialize_known_lsystems(void) {
 
     lsys_create(KNOWN_LSYSTEMS + LSYS_SIERPINSKI_TRIANGLE,
-                   "sierpinski_triangle", "F-G-G",
-                   (lsys_rule_def_t[]){
-                     { 'F', "F-G+F+G-F" },
-                     { 'G', "GG" }, 
-                     { 0, 0 }
-                   }, 120, NULL);
+                "sierpinski_triangle", "F-G-G",
+                (lsys_rule_def_t[]){
+                    { 'F', "F-G+F+G-F" },
+                    { 'G', "GG" },
+                    { 0, 0 }
+                }, 120, NULL);
 
     lsys_create(KNOWN_LSYSTEMS + LSYS_SIERPINSKI_ARROWHEAD,
-                   "sierpinski_arrowhead", "A",
-                   (lsys_rule_def_t[]){
-                     { 'A', "B-A-B" }, 
-                     { 'B', "A+B+A" }, 
-                     { 0, 0 }
-                   }, 60, NULL);
-    
+                "sierpinski_arrowhead", "A",
+                (lsys_rule_def_t[]){
+                    { 'A', "B-A-B" },
+                    { 'B', "A+B+A" },
+                    { 0, 0 }
+                }, 60, NULL);
+
     lsys_create(KNOWN_LSYSTEMS + LSYS_DRAGON_CURVE,
-                   "dragon_curve", "FX",
-                   (lsys_rule_def_t[]){
-                     { 'X', "X+YF+" },
-                     { 'Y', "-FX-Y" },
-                   }, 90, NULL);
-    
+                "dragon_curve", "FX",
+                (lsys_rule_def_t[]){
+                    { 'X', "X+YF+" },
+                    { 'Y', "-FX-Y" },
+                }, 90, NULL);
+
     lsys_create(KNOWN_LSYSTEMS + LSYS_BARNSLEY_FERN,
-                   "barnsley_fern", "X",
-                   (lsys_rule_def_t[]){
-                     { 'X', "F+[[X]-X]-F[-FX]+X" },
-                     { 'F', "FF" },
-                     { 0, 0 }
-                   }, 25, NULL);
+                "barnsley_fern", "X",
+                (lsys_rule_def_t[]){
+                    { 'X', "F+[[X]-X]-F[-FX]+X" },
+                    { 'F', "FF" },
+                    { 0, 0 }
+                }, 25, NULL);
 
     lsys_create(KNOWN_LSYSTEMS + LSYS_STICKS,
-                   "sticks", "X",
-                   (lsys_rule_def_t[]){
-                     { 'X', "F[+X]F[-X]+X" },
-                     { 'F', "FF" },
-                     { 0, 0 }
-                   }, 20, "F");
+                "sticks", "X",
+                (lsys_rule_def_t[]){
+                    { 'X', "F[+X]F[-X]+X" },
+                    { 'F', "FF" },
+                    { 0, 0 }
+                }, 20, "F");
 
     lsys_create(KNOWN_LSYSTEMS + LSYS_HILBERT,
-                   "hilbert", "L",
-                   (lsys_rule_def_t[]){
-                     { 'L', "+RF-LFL-FR+" },
-                     { 'R', "-LF+RFR+FL-" },
-                     { 0, 0 }
-                   }, 90, "F");
+                "hilbert", "L",
+                (lsys_rule_def_t[]){
+                    { 'L', "+RF-LFL-FR+" },
+                    { 'R', "-LF+RFR+FL-" },
+                    { 0, 0 }
+                }, 90, "F");
 
     lsys_create(KNOWN_LSYSTEMS + LSYS_PENTAPLEXITY,
-                   "pentaplexity", "F++F++F++F++F",
-                   (lsys_rule_def_t[]){
-                     { 'F', "F++F++F+++++F-F++F" },
-                     { 0, 0 }
-                   }, 36, NULL);
+                "pentaplexity", "F++F++F++F++F",
+                (lsys_rule_def_t[]){
+                    { 'F', "F++F++F+++++F-F++F" },
+                    { 0, 0 }
+                }, 36, NULL);
 
 }
 
@@ -637,7 +637,7 @@ void parse_options(int argc, char** argv, options_t* opts) {
             } else if (required_count == 1) {
 
                 int d;
-            
+
                 if (sscanf(arg, "%d", &d) != 1 || d <= 0) {
                     ok = 0;
                     break;
@@ -653,25 +653,25 @@ void parse_options(int argc, char** argv, options_t* opts) {
             }
 
             ++required_count;
-            
+
         } else if (!strcmp(arg, "-s")) {
-            
+
             opts->method = LSYS_METHOD_STRING;
-            
+
         } else if (!strcmp(arg, "-r")) {
 
             opts->method = LSYS_METHOD_RECURSION;
-            
+
         } else if (!strcmp(arg, "-x")) {
-            
+
             if (++i == argc) { ok = 0; break; }
-            
+
             int d;
-            
+
             if (sscanf(argv[i], "%d", &d) != 1) {
                 ok = 0; break;
             }
-            
+
             if (d >= -1) {
                 opts->max_segments = (size_t)d;
             } else {
@@ -680,7 +680,7 @@ void parse_options(int argc, char** argv, options_t* opts) {
             }
 
         } else if (!strcmp(arg, "-R")) {
-            
+
             disable_precomputed_rotation = 1;
 
         } else {
@@ -722,7 +722,7 @@ void parse_options(int argc, char** argv, options_t* opts) {
     printf("\n");
 
     lsys_print(opts->lsys);
-    
+
 }
 
 //////////////////////////////////////////////////////////////////////
@@ -747,7 +747,7 @@ int main(int argc, char** argv) {
     if (opts.method == LSYS_METHOD_STRING) {
 
         char* lstring = lsys_build_string(opts.lsys,
-                                             opts.max_depth);
+                                          opts.max_depth);
 
         segments = lsys_segments_from_string(opts.lsys, lstring);
 
@@ -767,7 +767,7 @@ int main(int argc, char** argv) {
     // either output or not
 
     if (segments->count > opts.max_segments) {
-        
+
         printf("...maximum of %d segments exceeded, skipping output!\n",
                (int)opts.max_segments);
 
@@ -777,7 +777,7 @@ int main(int argc, char** argv) {
         const lsys_segment_t* end = segment + segments->count;
 
         FILE* outfile = fopen("segments.txt", "w");
-        
+
         for ( ; segment != end; ++segment) {
             fprintf(outfile, "%g %g %g %g\n",
                     segment->p0.x, segment->p0.y,
