@@ -22,7 +22,8 @@ def main():
         'lsystems_v3',
         'lsystems_v4',
         'lsystems_v5',
-        'lsystems_v6'
+        'lsystems_v6',
+        'lsystems_v7'
     ]
 
     expected_python_slowdown = 100.
