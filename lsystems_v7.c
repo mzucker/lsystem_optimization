@@ -564,7 +564,6 @@ darray_t* lsys_segments_from_string(const lsys_t* lsys,
                                     const char* lstring) {
 
     darray_t* segments = malloc(sizeof(darray_t));
-
     darray_create(segments, sizeof(lsys_segment_t),
                   LSYS_INIT_SEGMENTS_CAPACITY);
 
@@ -611,8 +610,6 @@ void _lsys_segments_r(const lsys_t* lsys,
                 lsys_memo_t* memo = mset->memos[symbol];
 
                 if (memo && memo->memo_depth == remaining_depth) {
-
-                    //printf("playback %c %d\n", symbol, (int)memo->segment_count);
 
                     xform_t update_xform =
                         xform_compose(*cur_state, memo->init_inverse);
@@ -692,7 +689,6 @@ darray_t* lsys_segments_recursive(const lsys_t* lsys,
                                   size_t min_parallel_segments) {
 
     darray_t* segments = malloc(sizeof(darray_t));
-
     darray_create(segments, sizeof(lsys_segment_t),
                   LSYS_INIT_SEGMENTS_CAPACITY);
 

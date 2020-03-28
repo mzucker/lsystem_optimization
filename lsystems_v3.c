@@ -404,7 +404,6 @@ darray_t* lsys_segments_from_string(const lsys_t* lsys,
                                     const char* lstring) {
 
     darray_t* segments = malloc(sizeof(darray_t));
-
     darray_create(segments, sizeof(lsys_segment_t),
                   LSYS_INIT_SEGMENTS_CAPACITY);
 
@@ -461,7 +460,6 @@ darray_t* lsys_segments_recursive(const lsys_t* lsys,
                                   size_t max_depth) {
 
     darray_t* segments = malloc(sizeof(darray_t));
-
     darray_create(segments, sizeof(lsys_segment_t),
                   LSYS_INIT_SEGMENTS_CAPACITY);
 
