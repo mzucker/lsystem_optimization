@@ -40,12 +40,12 @@ void darray_resize(darray_t* darray, size_t new_count);
 void darray_extend(darray_t* darray, const void* elements, size_t count);
 void darray_push_back(darray_t* darray, const void* elem);
 void darray_pop_back(darray_t* darray, void* elem);
-
 void* darray_elem_ptr(darray_t* darray, size_t idx);
 const void* darray_const_elem_ptr(const darray_t* darray, size_t idx);
-
 void darray_get(const darray_t* darray, size_t idx, void* dst);
 void darray_set(darray_t* darray, size_t idx, const void* src);
+void darray_clear(darray_t* darray);
+void darray_destroy(darray_t* darray);
 
 //////////////////////////////////////////////////////////////////////
 // geometry utils
@@ -314,7 +314,7 @@ char* lsys_build_string(const lsys_t* lsys, size_t max_depth) {
         darray_t* src_darray = string_darrays + cur_idx;
         darray_t* dst_darray = string_darrays + next_idx;
 
-        darray_resize(dst_darray, 0);
+        darray_clear(dst_darray);
         
         const char* start = (const char*)src_darray->data;
         const char* end = start + src_darray->count;
