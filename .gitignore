@@ -5,4 +5,5 @@ segment_plot.png
 segments.txt
 benchmark_results.*
 __pycache__
+blog_images
 *.dSYM
