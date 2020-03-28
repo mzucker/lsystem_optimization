@@ -18,7 +18,7 @@
 //////////////////////////////////////////////////////////////////////
 // for benchmarking
 
-double get_time_as_double();
+double get_time_as_double(void);
 
 //////////////////////////////////////////////////////////////////////
 // dynamic array
@@ -145,7 +145,7 @@ enum {
 
 lsys_t KNOWN_LSYSTEMS[NUM_KNOWN_LSYSTEMS];
 
-void initialize_known_lsystems();
+void initialize_known_lsystems(void);
 
 //////////////////////////////////////////////////////////////////////
 // options for running this program
@@ -166,7 +166,7 @@ void parse_options(int argc, char** argv, options_t* opts);
 
 //////////////////////////////////////////////////////////////////////
 
-double get_time_as_double() {
+double get_time_as_double(void) {
 
     struct timespec tp;
 
@@ -542,7 +542,7 @@ darray_t* lsys_segments_recursive(const lsys_t* lsys,
 //////////////////////////////////////////////////////////////////////
 // definitions for L-Systems from websites listed at top of file
 
-void initialize_known_lsystems() {
+void initialize_known_lsystems(void) {
 
     lsys_create(KNOWN_LSYSTEMS + LSYS_SIERPINSKI_TRIANGLE,
                    "sierpinski_triangle", "F-G-G",
