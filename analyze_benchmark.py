@@ -37,6 +37,8 @@ def main():
     mean_times = np.zeros(nprogs)
     errs = np.zeros((2, nprogs))
 
+    plt.figure(num=None, figsize=(8, 4.03))
+    
     plt.grid(color=[.9, .9, .9], zorder=-1, linewidth=.5)
     
     for pidx, prog in enumerate(progs):
@@ -83,9 +85,13 @@ def main():
     plt.yscale('log')
     #plt.show()
 
-    plt.savefig('benchmark_results.png', dpi=300, facecolor=(1., 1., 1., 0.))
-
+    plt.savefig('benchmark_results.png', dpi=200, facecolor=(1., 1., 1., 0.))
     os.system('mogrify -trim -bordercolor transparent -border 10x10 benchmark_results.png')
+
+    #plt.savefig('benchmark_results.png', dpi=200)
+    #os.system('mogrify -trim -bordercolor White -border 20x20 benchmark_results.png')
+    
+    
     
 
 
