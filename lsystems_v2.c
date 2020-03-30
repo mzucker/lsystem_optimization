@@ -443,6 +443,7 @@ void initialize_known_lsystems(void) {
                 (lsys_rule_def_t[]){
                     { 'X', "X+YF+" },
                     { 'Y', "-FX-Y" },
+                    { 0, 0 }
                 }, 90, NULL);
 
     lsys_create(KNOWN_LSYSTEMS + LSYS_BARNSLEY_FERN,
